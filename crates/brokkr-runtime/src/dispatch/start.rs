@@ -406,9 +406,13 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Chain(_)
         | StoreError::Clock { .. }
         | StoreError::Damaged { .. }
+        | StoreError::DivergentEventLog { .. }
         | StoreError::HeadMoved { .. }
+        | StoreError::Import(_)
+        | StoreError::InvalidManifest { .. }
         | StoreError::Json(_)
         | StoreError::Orders(_)
+        | StoreError::ProjectionLag { .. }
         | StoreError::RowBeforeChain { .. }
         | StoreError::RunExists(_)
         | StoreError::RunIdTooLong { .. }

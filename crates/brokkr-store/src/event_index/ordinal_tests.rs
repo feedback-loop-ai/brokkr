@@ -658,3 +658,61 @@ fn an_old_stale_index_key_is_repaired_at_the_next_writable_open() {
         "the re-keyed index names the stream: {sql}"
     );
 }
+
+/// `ordinal::check` agrees on result-only, attemptless, and effect-restarting
+/// streams, reports `Behind` on a NULL checkpoint ordinal, and reports
+/// `Corrupt` on a wrong non-NULL ordinal.
+#[test]
+fn ordinal_check_handles_all_shapes_lag_and_corruption() {
+    let (_dir, mut s1) = store();
+    let made = ordinal_shapes(&mut s1);
+    let events = s1.load("r").unwrap();
+    assert_eq!(
+        super::ordinal::check(&s1.conn, "r", &events).unwrap(),
+        super::ordinal::OrdinalState::Agrees
+    );
+    let cp_seq = made[2].seq;
+    for (seq, value, state, reset) in [
+        (cp_seq, "NULL", super::ordinal::OrdinalState::Behind, None),
+        (cp_seq, "77", super::ordinal::OrdinalState::Corrupt, None),
+        (1, "1", super::ordinal::OrdinalState::Corrupt, Some("NULL")),
+    ] {
+        s1.conn
+            .execute(
+                &format!(
+                    "UPDATE event_index SET {COLUMN} = {value} WHERE run_id = 'r' AND seq = ?1"
+                ),
+                [seq as i64],
+            )
+            .unwrap();
+        assert_eq!(
+            super::ordinal::check(&s1.conn, "r", &events).unwrap(),
+            state
+        );
+        if let Some(restore) = reset {
+            s1.conn
+                .execute(
+                    &format!(
+                        "UPDATE event_index SET {COLUMN} = {restore} WHERE run_id = 'r' AND seq = ?1"
+                    ),
+                    [seq as i64],
+                )
+                .unwrap();
+        } else {
+            super::ordinal::renumber(&s1.conn, "r").unwrap();
+        }
+        assert_eq!(
+            super::ordinal::check(&s1.conn, "r", &events).unwrap(),
+            super::ordinal::OrdinalState::Agrees
+        );
+    }
+
+    // Sequential effects on one attempt also match expected restart ordinals.
+    let (_dir2, mut s2) = store();
+    let _ = two_effects(&mut s2);
+    let events2 = s2.load("r").unwrap();
+    assert_eq!(
+        super::ordinal::check(&s2.conn, "r", &events2).unwrap(),
+        super::ordinal::OrdinalState::Agrees
+    );
+}

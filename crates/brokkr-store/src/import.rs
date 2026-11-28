@@ -95,6 +95,15 @@ fn adoptable(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '-' || character == '_'
 }
 
+/// Gate a run id for adoption or NDJSON import: 1..=[`RUN_ID_MAX`] characters,
+/// each allowed by [`adoptable`].
+pub(crate) fn admit_run_id(run_id: &str) -> Result<(), ImportError> {
+    if run_id.is_empty() || run_id.chars().count() > RUN_ID_MAX || !run_id.chars().all(adoptable) {
+        return Err(ImportError::UnadoptableRunId(escaped(run_id)));
+    }
+    Ok(())
+}
+
 /// A rejected run id as it may be written into a refusal. Every
 /// character the gate does not allow becomes its codepoint, so the one
 /// line naming the refusal is ASCII by construction — an id that reached
@@ -163,12 +172,7 @@ impl<'a> RunsRow<'a> {
         // this one run_id (`ChainError::ForeignRun`) and that no byte of
         // any of them was altered — so checking the first is checking
         // them all, and what is left to check is the name itself.
-        if started.run_id.is_empty()
-            || started.run_id.chars().count() > RUN_ID_MAX
-            || !started.run_id.chars().all(adoptable)
-        {
-            return Err(ImportError::UnadoptableRunId(escaped(&started.run_id)));
-        }
+        admit_run_id(&started.run_id)?;
         let feature = state
             .feature
             .ok_or(ImportError::Unattested { field: "feature" })?;

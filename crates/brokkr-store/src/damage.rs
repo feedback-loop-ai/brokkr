@@ -94,7 +94,11 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::Queue(_)
         | StoreError::Orders(_)
-        | StoreError::SeatTree(_) => return error,
+        | StoreError::SeatTree(_)
+        | StoreError::ProjectionLag { .. }
+        | StoreError::DivergentEventLog { .. }
+        | StoreError::InvalidManifest { .. }
+        | StoreError::Import(_) => return error,
     };
     StoreError::Damaged {
         journal: journal.to_path_buf(),

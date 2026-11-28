@@ -13,7 +13,7 @@ use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
 
 use super::checkpoint::{facts as checkpoint_facts, row_columns, COLUMNS as CHECKPOINT_COLUMNS};
-use super::{park_facts, IndexFault, PARK_COLUMNS};
+use super::{park_facts, IndexFault, CHECKPOINTED, PARKED, PARK_COLUMNS};
 use crate::StoreError;
 
 /// The columns `event` projects to after its key, by name: the event's
@@ -139,20 +139,28 @@ fn behind(
 
 /// A row's markers that say its dated facts wait for the refold, read once
 /// for the row and named by the constants below: a park's `facts_seq` off
-/// its run's head, or a checkpoint's `facts`, `turn` or `repeat` not
-/// written (decision 0089 ruling 4).
+/// its run's head, a checkpoint's `facts_seq` off its own seq, or a
+/// checkpoint's `facts`, `turn` or `repeat` not written (decision 0089
+/// ruling 4).
 #[derive(Clone, Copy)]
-struct Markers([bool; 4]);
+struct Markers([bool; 5]);
 
 impl Markers {
-    const STAMP: usize = 0;
-    const FACTS: usize = 1;
-    const TURN: usize = 2;
-    const REPEAT: usize = 3;
+    const PARK_STAMP: usize = 0;
+    const CHECKPOINT_STAMP: usize = 1;
+    const FACTS: usize = 2;
+    const TURN: usize = 3;
+    const REPEAT: usize = 4;
 
     fn of(expected: &[(&'static str, Value)], row: &rusqlite::Row<'_>) -> Result<Self, StoreError> {
+        let stamp = behind(expected, row, "facts_seq", Marker::Stamp)?;
+        let row_type = expected.iter().find_map(|(column, value)| match value {
+            Value::Text(kind) if *column == "type" => Some(kind.as_str()),
+            _ => None,
+        });
         Ok(Self([
-            behind(expected, row, "facts_seq", Marker::Stamp)?,
+            stamp && row_type == Some(PARKED),
+            stamp && row_type == Some(CHECKPOINTED),
             behind(expected, row, "facts", Marker::Checkpoint)?,
             behind(expected, row, "turn", Marker::Checkpoint)?,
             behind(expected, row, "repeat", Marker::Checkpoint)?,
@@ -165,14 +173,17 @@ impl Markers {
         self.0.iter().any(|behind| *behind)
     }
 
-    /// Whether a lagging row's `column` is left to the refold. A stamp off
-    /// its expected value is a park's off its head or a checkpoint's off
-    /// its own seq: either leaves both the park's and the checkpoint's
-    /// dated columns. Unwritten checkpoint facts leave the checkpoint's
-    /// alone, and an unwritten `turn` or `repeat` leaves that one column.
+    /// Whether a lagging row's `column` is left to the refold. A park's
+    /// lagging `facts_seq` leaves only the park's dated columns (never
+    /// checkpoint-only columns like `usd`), and a checkpoint's lagging
+    /// `facts_seq` leaves only the checkpoint's dated columns and `facts_seq`
+    /// (never park-only columns). Unwritten checkpoint facts leave the
+    /// checkpoint's alone, and an unwritten `turn` or `repeat` leaves that
+    /// one column.
     fn leaves(self, column: &&'static str) -> bool {
-        (self.0[Self::STAMP]
-            && (PARK_COLUMNS.contains(column) || CHECKPOINT_COLUMNS.contains(column)))
+        (self.0[Self::PARK_STAMP] && PARK_COLUMNS.contains(column))
+            || (self.0[Self::CHECKPOINT_STAMP]
+                && (CHECKPOINT_COLUMNS.contains(column) || *column == "facts_seq"))
             || (self.0[Self::FACTS] && CHECKPOINT_COLUMNS.contains(column))
             || (self.0[Self::TURN] && *column == "turn")
             || (self.0[Self::REPEAT] && *column == "repeat")
@@ -302,4 +313,16 @@ pub(crate) fn first_unindexed(
         None if stale => IndexReading::Behind,
         None => IndexReading::Agrees,
     })
+}
+
+/// Populate any missing `event_index` rows for `run_id` from `events` inside
+/// the caller's transaction, firing the table's own ordinal and stamp-bounding
+/// triggers in sequence order.
+pub(crate) fn index_run(tx: &Connection, run_id: &str) -> Result<(), StoreError> {
+    let rows = super::unindexed(tx, run_id)?;
+    let mut insert = tx.prepare_cached(&super::INSERT_ROW)?;
+    for row in &rows {
+        insert.execute(rusqlite::params_from_iter(row))?;
+    }
+    Ok(())
 }

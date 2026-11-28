@@ -305,6 +305,31 @@ pub(crate) fn write(tx: &Connection, run_id: &str, summary: &Summary) -> Result<
     Ok(())
 }
 
+/// Insert or replace `run_id`'s summary row with both its folded and
+/// trigger-kept columns, inside the caller's transaction.
+pub(crate) fn upsert(tx: &Connection, run_id: &str, summary: &Summary) -> Result<(), StoreError> {
+    let standing = standing(tx, run_id)?;
+    let mut columns = written(summary);
+    columns.extend(kept(summary, standing.as_ref()));
+    let names: Vec<&str> = std::iter::once("run_id")
+        .chain(columns.iter().map(|(name, _)| *name))
+        .collect();
+    let placeholders: Vec<String> = (1..=names.len()).map(|at| format!("?{at}")).collect();
+    let sql = format!(
+        "INSERT OR REPLACE INTO run_summary ({}) VALUES ({})",
+        names.join(", "),
+        placeholders.join(", ")
+    );
+    let mut bound: Vec<&dyn rusqlite::ToSql> = vec![&run_id];
+    bound.extend(
+        columns
+            .iter()
+            .map(|(_, value)| value as &dyn rusqlite::ToSql),
+    );
+    tx.prepare_cached(&sql)?.execute(bound.as_slice())?;
+    Ok(())
+}
+
 /// What a `runs` row lists, owned so a writer can keep it between appends.
 #[derive(Debug, Clone)]
 pub(crate) struct Listed {

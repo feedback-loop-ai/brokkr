@@ -84,6 +84,7 @@ mod orders;
 mod origin;
 mod page;
 mod patience;
+pub mod ports;
 mod queue;
 mod read;
 mod redact;
@@ -110,6 +111,7 @@ pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError,
 pub use opening::Opened;
 pub use orders::OrderRefusal;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
+pub use ports::ManifestRefusal;
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
     CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, Disposal, EntryId,
@@ -268,6 +270,35 @@ pub enum StoreError {
         operation: &'static str,
         waited_ms: u128,
     },
+    /// The event log committed envelopes for `run_id`, but updating derived
+    /// projections failed. The event is durable; callers must NOT treat this
+    /// as contention (`is_contention() == false`).
+    #[error(
+        "projection lag for run '{run_id}': event log committed, but projection update failed ({source})"
+    )]
+    ProjectionLag {
+        run_id: String,
+        #[source]
+        source: Box<StoreError>,
+    },
+    /// An event log or projection update diverges from this store's local
+    /// `runs`/`events` state.
+    #[error("event log for run '{run_id}' diverges from local store state")]
+    DivergentEventLog { run_id: String },
+    /// A run manifest (or embedded `RunStarted` manifest) passed to
+    /// [`ports::Journal`] or [`ports::EventLog`] failed validation: the
+    /// manifest must be a JSON object whose `"engine"`, `"feature"`, and
+    /// `"bundle_name"` fields (when present) are JSON strings (see
+    /// [`ManifestRefusal`]); nothing was recorded.
+    #[error("invalid manifest for run '{run_id}': {reason}; nothing was recorded")]
+    InvalidManifest {
+        run_id: String,
+        reason: ManifestRefusal,
+    },
+    /// An import operation failed an adoption gate (such as an unadoptable
+    /// run id or a fold refusal); nothing was recorded.
+    #[error(transparent)]
+    Import(Box<ImportError>),
 }
 
 impl StoreError {
@@ -744,12 +775,7 @@ impl Store {
     pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
         let events = self.load(run_id)?;
         seat_record::validate_events(&events)?;
-        let mut out = String::new();
-        for event in &events {
-            out.push_str(&serde_json::to_string(&serde_json::to_value(event)?)?);
-            out.push('\n');
-        }
-        Ok(out)
+        ports::format_canonical_ndjson(&events)
     }
 
     /// The journal head hash — cheap identity for fencing and anchors.
