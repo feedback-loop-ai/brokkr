@@ -210,8 +210,8 @@ pub(crate) enum WorkflowInputType {
 }
 
 impl WorkflowInputType {
-    pub(crate) fn parse_scalar(scalar: &Scalar) -> Option<Self> {
-        match scalar.as_literal()? {
+    fn parse_str(s: &str) -> Option<Self> {
+        match s {
             "boolean" => Some(Self::Boolean),
             "string" => Some(Self::String),
             "choice" => Some(Self::Choice),
@@ -230,7 +230,7 @@ impl WorkflowInputType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkflowInput {
-    pub(crate) input_type: Option<Scalar>,
+    pub(crate) input_type: Option<WorkflowInputType>,
     pub(crate) default: Option<Scalar>,
     pub(crate) has_options_key: bool,
     pub(crate) extra_keys: Vec<String>,
@@ -456,13 +456,6 @@ impl Workflow {
 
     pub(crate) fn unfiltered_event(&self, name: &str) -> Option<&EventTrigger> {
         self.event(name).filter(|e| e.is_unfiltered())
-    }
-
-    pub(crate) fn workflow_call_input(&self, name: &str) -> Option<&WorkflowInput> {
-        self.event("workflow_call")?
-            .inputs
-            .iter()
-            .find_map(|(k, v)| k.eq_ignore_ascii_case(name).then_some(v))
     }
 
     pub(crate) fn job(&self, id: &str) -> Option<&Job> {
@@ -863,15 +856,58 @@ fn parse_workflow_input_def(
         })
         .map(|&(ik, _)| ik.to_string())
         .collect();
+    let input_type = parse_workflow_input_type(
+        &place,
+        input_name,
+        map_get(&entries, "type"),
+        strict,
+        issues,
+    );
     if !strict {
         record_workflow_input_shape_issues(&place, input_name, &entries, issues);
     }
     Ok(Some(WorkflowInput {
-        input_type: map_get(&entries, "type").map(Scalar::from_yaml),
+        input_type,
         default: map_get(&entries, "default").map(Scalar::from_yaml),
         has_options_key: map_get(&entries, "options").is_some(),
         extra_keys,
     }))
+}
+
+fn parse_workflow_input_type(
+    place: &str,
+    input_name: &str,
+    raw: Option<&Yaml>,
+    strict: bool,
+    issues: &mut Vec<TriggerShapeIssue>,
+) -> Option<WorkflowInputType> {
+    let node = raw?;
+    match node {
+        Yaml::String(s) => match WorkflowInputType::parse_str(s) {
+            Some(ty) => Some(ty),
+            None => {
+                if !strict {
+                    issues.push(shape_issue(
+                        place,
+                        format!("unsupported `type: {s}` on `inputs.{input_name}`"),
+                    ));
+                }
+                None
+            }
+        },
+        other => {
+            if !strict {
+                issues.push(shape_issue(
+                    place,
+                    format!(
+                        "{} `type` on `inputs.{input_name}`",
+                        Scalar::from_yaml(other).kind_label()
+                    ),
+                ));
+            }
+            None
+        }
+    }
 }
 
 fn record_workflow_input_shape_issues(

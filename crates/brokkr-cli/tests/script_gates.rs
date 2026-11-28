@@ -1193,6 +1193,15 @@ fn assert_digest_check_fails_with(repo: &Repo, expected: &str, absent: &str) {
     assert!(!err.contains(absent), "{err}");
 }
 
+fn assert_digest_refresh_succeeds(repo: &Repo) {
+    let out = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
+    );
+}
+
 #[test]
 fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers() {
     let repo = Repo::new();
@@ -1240,12 +1249,7 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
         .exists());
 
     // Refresh writes the digest file and the Rust guard passes on the nested tree.
-    let write = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(write.status.success(), "{}", stderr(&write));
-    assert_eq!(
-        crate::workflow_digests::check_workflow_digests(repo.path()),
-        Vec::new()
-    );
+    assert_digest_refresh_succeeds(&repo);
     let recorded = repo.read(crate::workflow_digests::DIGEST_FILE);
     let expected = format!(
         "{}  .github/actions/outer/helper.sh\n{}  .github/actions/outer/inner/action.yml\n{}  .github/renovate-global.json5\n{}  .github/renovate.json5\n{}  .github/workflows/ci.yml\n",
@@ -1286,12 +1290,7 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
     assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
 
     // Refresh updates it and guard passes again.
-    let refresh_again = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(refresh_again.status.success(), "{}", stderr(&refresh_again));
-    assert_eq!(
-        crate::workflow_digests::check_workflow_digests(repo.path()),
-        Vec::new()
-    );
+    assert_digest_refresh_succeeds(&repo);
 
     // Succeeds with a `shasum -a 256` fallback when `sha256sum` is absent.
     std::fs::remove_file(repo.path().join("stub-bin/sha256sum")).expect("rm sha256sum stub");
@@ -1302,12 +1301,45 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
     let shasum_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
     assert!(shasum_ok.status.success(), "{}", stderr(&shasum_ok));
     std::fs::remove_file(repo.path().join(crate::workflow_digests::DIGEST_FILE)).expect("rm");
-    let shasum_write = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(shasum_write.status.success(), "{}", stderr(&shasum_write));
-    assert_eq!(
-        crate::workflow_digests::check_workflow_digests(repo.path()),
-        Vec::new()
+    assert_digest_refresh_succeeds(&repo);
+}
+
+#[test]
+fn refresh_workflow_digests_fails_closed_on_cmp_error_without_replacing_target() {
+    let repo = Repo::new();
+    link_digest_script_tools(&repo);
+    std::fs::create_dir_all(repo.path().join(".github/actions")).expect("actions dir");
+    std::fs::create_dir_all(repo.path().join(".github/workflows")).expect("workflows dir");
+    plant_renovate_configs(&repo);
+    let entries = [
+        (".github/renovate-global.json5", SAMPLE_RENOVATE_GLOBAL),
+        (".github/renovate.json5", SAMPLE_RENOVATE),
+    ];
+    repo.executable(
+        "stub-bin/sha256sum",
+        &stub_hasher_from_sha2(false, &entries),
     );
+
+    // Empty walked directories still produce a valid two-line Renovate digest file.
+    assert_digest_refresh_succeeds(&repo);
+
+    // A `cmp` error (exit 2) must neither claim staleness in `--check` nor
+    // replace an existing digest file in refresh mode.
+    let sentinel = "sentinel-untouched\n";
+    repo.put(crate::workflow_digests::DIGEST_FILE, sentinel);
+    repo.executable("stub-bin/cmp", "#!/usr/bin/env bash\nexit 2\n");
+    for args in [&["--check"][..], &[][..]] {
+        let out = repo.run_hermetic("scripts/refresh-workflow-digests.sh", args, &[]);
+        assert_eq!(out.status.code(), Some(1), "args={args:?}");
+        let err = stderr(&out);
+        assert!(
+            err.contains("failed to compare .github/workflow-digests.txt (cmp exited 2)"),
+            "args={args:?}: {err}"
+        );
+        assert!(!err.contains("is out of date"), "args={args:?}: {err}");
+        assert!(!err.contains("is missing"), "args={args:?}: {err}");
+        assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), sentinel);
+    }
 }
 
 #[test]

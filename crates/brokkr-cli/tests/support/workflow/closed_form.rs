@@ -221,10 +221,18 @@ impl ClosedJob {
     }
 }
 
+/// Typed, closed-form-admitted `workflow_call` input declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClosedWorkflowInput {
+    pub(crate) input_type: WorkflowInputType,
+    pub(crate) default: Option<Scalar>,
+}
+
 /// Typed, closed-form-admitted covered workflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ClosedWorkflow {
     raw: Workflow,
+    workflow_call_inputs: Vec<(String, ClosedWorkflowInput)>,
     pub(crate) jobs: Vec<ClosedJob>,
 }
 
@@ -258,8 +266,8 @@ impl ClosedWorkflow {
         self.raw.unfiltered_event(name)
     }
 
-    pub(crate) fn workflow_call_input(&self, name: &str) -> Option<&WorkflowInput> {
-        self.raw.workflow_call_input(name)
+    pub(crate) fn workflow_call_input(&self, name: &str) -> Option<&ClosedWorkflowInput> {
+        find_workflow_call_input(&self.workflow_call_inputs, name)
     }
 
     pub(crate) fn grants_permission(&self, scope: &str, level: &str) -> bool {
@@ -303,17 +311,31 @@ fn admit_workflow(file: &str, raw: Workflow) -> Result<ClosedWorkflow, ClosedFor
             ALLOWED_EVENT_FILTERS,
         ));
     }
+    let mut workflow_call_inputs = Vec::new();
     for ev in &raw.events {
-        validate_event_closed_form(ev, file)?;
+        let admitted_inputs = validate_event_closed_form(ev, file)?;
+        if ev.name == "workflow_call" {
+            workflow_call_inputs = admitted_inputs;
+        }
     }
     let mut closed_jobs = Vec::with_capacity(raw.jobs.len());
     for job in &raw.jobs {
-        closed_jobs.push(admit_job(file, &raw, job)?);
+        closed_jobs.push(admit_job(file, &raw, &workflow_call_inputs, job)?);
     }
     Ok(ClosedWorkflow {
         raw,
+        workflow_call_inputs,
         jobs: closed_jobs,
     })
+}
+
+fn find_workflow_call_input<'a>(
+    inputs: &'a [(String, ClosedWorkflowInput)],
+    name: &str,
+) -> Option<&'a ClosedWorkflowInput> {
+    inputs
+        .iter()
+        .find_map(|(k, v)| k.eq_ignore_ascii_case(name).then_some(v))
 }
 
 fn validate_top_level(wf: &Workflow, file: &str) -> Result<(), ClosedFormRefusal> {
@@ -403,7 +425,7 @@ fn validate_workflow_input_closed_form(
     place: &str,
     input_name: &str,
     input: &WorkflowInput,
-) -> Result<(), ClosedFormRefusal> {
+) -> Result<ClosedWorkflowInput, ClosedFormRefusal> {
     let input_place = format!("{place}.inputs.{input_name}");
     if let Some(extra) = input.extra_keys.first() {
         return Err(ClosedFormRefusal::new(
@@ -414,34 +436,14 @@ fn validate_workflow_input_closed_form(
             ALLOWED_EVENT_FILTERS,
         ));
     }
-    let ty = match &input.input_type {
-        Some(raw) => match WorkflowInputType::parse_scalar(raw) {
-            Some(ty) => ty,
-            None => {
-                let detail = match raw {
-                    Scalar::String(s) => {
-                        format!("unsupported `type: {s}` on `inputs.{input_name}`")
-                    }
-                    _ => format!("{} `type` on `inputs.{input_name}`", raw.kind_label()),
-                };
-                return Err(ClosedFormRefusal::new(
-                    file,
-                    &input_place,
-                    RefusalKind::EventFilter,
-                    detail,
-                    ALLOWED_EVENT_FILTERS,
-                ));
-            }
-        },
-        None => {
-            return Err(ClosedFormRefusal::new(
-                file,
-                &input_place,
-                RefusalKind::EventFilter,
-                format!("missing `type` on `inputs.{input_name}`"),
-                ALLOWED_EVENT_FILTERS,
-            ));
-        }
+    let Some(ty) = input.input_type else {
+        return Err(ClosedFormRefusal::new(
+            file,
+            &input_place,
+            RefusalKind::EventFilter,
+            format!("missing `type` on `inputs.{input_name}`"),
+            ALLOWED_EVENT_FILTERS,
+        ));
     };
     if input.has_options_key && ty != WorkflowInputType::Choice {
         return Err(ClosedFormRefusal::new(
@@ -473,10 +475,16 @@ fn validate_workflow_input_closed_form(
             ));
         }
     }
-    Ok(())
+    Ok(ClosedWorkflowInput {
+        input_type: ty,
+        default: input.default.clone(),
+    })
 }
 
-fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), ClosedFormRefusal> {
+fn validate_event_closed_form(
+    ev: &EventTrigger,
+    file: &str,
+) -> Result<Vec<(String, ClosedWorkflowInput)>, ClosedFormRefusal> {
     let place = format!("on.{}", ev.name);
     if let Some(issue) = ev.shape_issues.first() {
         return Err(ClosedFormRefusal::new(
@@ -510,8 +518,10 @@ fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), Close
             ALLOWED_EVENT_FILTERS,
         ));
     }
+    let mut admitted_inputs = Vec::with_capacity(ev.inputs.len());
     for (input_name, input) in &ev.inputs {
-        validate_workflow_input_closed_form(file, &place, input_name, input)?;
+        let admitted = validate_workflow_input_closed_form(file, &place, input_name, input)?;
+        admitted_inputs.push((input_name.clone(), admitted));
     }
     for key in ev.filters.keys() {
         if !matches!(
@@ -527,20 +537,33 @@ fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), Close
             ));
         }
     }
-    Ok(())
+    Ok(admitted_inputs)
 }
 
-fn admit_job(file: &str, wf: &Workflow, job: &Job) -> Result<ClosedJob, ClosedFormRefusal> {
+fn admit_job(
+    file: &str,
+    wf: &Workflow,
+    workflow_call_inputs: &[(String, ClosedWorkflowInput)],
+    job: &Job,
+) -> Result<ClosedJob, ClosedFormRefusal> {
     if let Some(matrix) = &job.matrix {
         validate_matrix_closed_form(file, &job.id, matrix)?;
     }
     let job_place = format!("job {} if", job.id);
     let job_cond = ClosedCondition::parse_raw(job.if_raw.as_ref(), file, &job_place)?;
-    validate_condition_static(wf, job, None, &job_cond, file, &job_place)?;
+    validate_condition_static(
+        wf,
+        workflow_call_inputs,
+        job,
+        None,
+        &job_cond,
+        file,
+        &job_place,
+    )?;
 
     let mut closed_steps = Vec::with_capacity(job.steps.len());
     for (idx, step) in job.steps.iter().enumerate() {
-        closed_steps.push(admit_step(file, wf, job, idx, step)?);
+        closed_steps.push(admit_step(file, wf, workflow_call_inputs, job, idx, step)?);
     }
     Ok(ClosedJob {
         raw: job.clone(),
@@ -552,13 +575,22 @@ fn admit_job(file: &str, wf: &Workflow, job: &Job) -> Result<ClosedJob, ClosedFo
 fn admit_step(
     file: &str,
     wf: &Workflow,
+    workflow_call_inputs: &[(String, ClosedWorkflowInput)],
     job: &Job,
     idx: usize,
     step: &Step,
 ) -> Result<ClosedStep, ClosedFormRefusal> {
     let step_place = format!("job {} step {} if", job.id, idx + 1);
     let condition = ClosedCondition::parse_raw(step.if_raw.as_ref(), file, &step_place)?;
-    validate_condition_static(wf, job, Some(idx), &condition, file, &step_place)?;
+    validate_condition_static(
+        wf,
+        workflow_call_inputs,
+        job,
+        Some(idx),
+        &condition,
+        file,
+        &step_place,
+    )?;
     let (artifact_name, artifact_pattern) = parse_step_artifacts(job, step, idx, file)?;
     Ok(ClosedStep {
         raw: step.clone(),
@@ -675,6 +707,7 @@ fn matrix_axis_bare_truthy_valid(matrix: &Matrix, axis: &str) -> bool {
 
 fn validate_condition_static(
     wf: &Workflow,
+    workflow_call_inputs: &[(String, ClosedWorkflowInput)],
     job: &Job,
     step_idx: Option<usize>,
     cond: &ClosedCondition,
@@ -683,15 +716,17 @@ fn validate_condition_static(
 ) -> Result<(), ClosedFormRefusal> {
     match &cond.body {
         ConditionBody::Unconditional => Ok(()),
-        ConditionBody::Bare(path) => validate_bare_path(wf, job, path, file, place),
-        ConditionBody::All(cmps) | ConditionBody::Any(cmps) => cmps
-            .iter()
-            .try_for_each(|cmp| validate_comparison_static(wf, job, step_idx, cmp, file, place)),
+        ConditionBody::Bare(path) => {
+            validate_bare_path(workflow_call_inputs, job, path, file, place)
+        }
+        ConditionBody::All(cmps) | ConditionBody::Any(cmps) => cmps.iter().try_for_each(|cmp| {
+            validate_comparison_static(wf, workflow_call_inputs, job, step_idx, cmp, file, place)
+        }),
     }
 }
 
 fn validate_bare_path(
-    wf: &Workflow,
+    workflow_call_inputs: &[(String, ClosedWorkflowInput)],
     job: &Job,
     path: &ContextPath,
     file: &str,
@@ -699,10 +734,8 @@ fn validate_bare_path(
 ) -> Result<(), ClosedFormRefusal> {
     match path {
         ContextPath::Input(name) => {
-            let is_bool = wf
-                .workflow_call_input(name)
-                .and_then(|i| i.input_type.as_ref())
-                .and_then(WorkflowInputType::parse_scalar)
+            let is_bool = find_workflow_call_input(workflow_call_inputs, name)
+                .map(|i| i.input_type)
                 == Some(WorkflowInputType::Boolean);
             if is_bool {
                 return Ok(());
@@ -745,6 +778,7 @@ fn validate_bare_path(
 
 fn validate_comparison_static(
     wf: &Workflow,
+    workflow_call_inputs: &[(String, ClosedWorkflowInput)],
     job: &Job,
     step_idx: Option<usize>,
     cmp: &Comparison,
@@ -772,10 +806,7 @@ fn validate_comparison_static(
             ))
         }
         ContextPath::Input(name) => {
-            let ty = wf
-                .workflow_call_input(name)
-                .and_then(|i| i.input_type.as_ref())
-                .and_then(WorkflowInputType::parse_scalar);
+            let ty = find_workflow_call_input(workflow_call_inputs, name).map(|i| i.input_type);
             if matches!(
                 ty,
                 Some(WorkflowInputType::String | WorkflowInputType::Choice)

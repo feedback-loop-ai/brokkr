@@ -1571,170 +1571,214 @@ fn macos_split_variants_each_bind_to_a_planted_mutation() {
     );
 }
 
-const OUT_OF_FORM_TRIGGER_CASES: &[(&str, &str, &str)] = &[
-    ("scalar on", "on: 42\n", "on"),
-    ("null on", "on: null\n", "on"),
-    ("non-string on list item", "on: [push, 42]\n", "on[1]"),
-    ("non-string on map key", "on:\n  42: null\n", "on"),
-    ("null schedule", "on:\n  schedule: null\n", "on.schedule"),
+const OUT_OF_FORM_TRIGGER_CASES: &[(&str, &str, &str, &str)] = &[
+    ("scalar on", "on: 42\n", "on", "integer `on` trigger"),
+    ("null on", "on: null\n", "on", "null `on` trigger"),
+    (
+        "non-string on list item",
+        "on: [push, 42]\n",
+        "on[1]",
+        "integer event entry in `on` list",
+    ),
+    (
+        "non-string on map key",
+        "on:\n  42: null\n",
+        "on",
+        "non-string event key under `on`",
+    ),
+    (
+        "null schedule",
+        "on:\n  schedule: null\n",
+        "on.schedule",
+        "null `schedule` trigger",
+    ),
     (
         "non-list schedule",
         "on:\n  schedule: '17 4 * * *'\n",
         "on.schedule",
+        "non-list `schedule` trigger",
     ),
     (
         "empty schedule list",
         "on:\n  schedule: []\n",
         "on.schedule",
+        "empty `schedule` trigger",
     ),
     (
         "scalar schedule row",
         "on:\n  schedule: [nope]\n",
         "on.schedule[0]",
+        "string `schedule` entry",
     ),
     (
         "empty schedule row",
         "on:\n  schedule: [{}]\n",
         "on.schedule[0]",
+        "empty `schedule` entry missing `cron`",
     ),
     (
         "non-string schedule cron",
         "on:\n  schedule:\n    - cron: 42\n",
         "on.schedule[0]",
+        "integer `cron` value in `schedule` entry",
     ),
     (
         "null schedule cron",
         "on:\n  schedule:\n    - cron: null\n",
         "on.schedule[0]",
+        "null `cron` value in `schedule` entry",
     ),
     (
         "workflow_call null types",
         "on:\n  workflow_call:\n    types: null\n",
         "on.workflow_call.types",
+        "null `types` filter value on `workflow_call`",
     ),
     (
         "scalar string branches filter",
         "on:\n  push:\n    branches: main\n",
         "on.push.branches",
+        "string `branches` filter value on `push`",
     ),
     (
         "scalar string tags filter",
         "on:\n  push:\n    tags: v1\n",
         "on.push.tags",
+        "string `tags` filter value on `push`",
     ),
     (
         "scalar string types filter",
         "on:\n  pull_request:\n    types: opened\n",
         "on.pull_request.types",
+        "string `types` filter value on `pull_request`",
     ),
     (
         "non-list filter value",
         "on:\n  push:\n    branches: 42\n",
         "on.push.branches",
+        "integer `branches` filter value on `push`",
     ),
     (
         "null filter value",
         "on:\n  push:\n    tags: null\n",
         "on.push.tags",
+        "null `tags` filter value on `push`",
     ),
     (
         "non-string filter list item",
         "on:\n  pull_request:\n    types: [opened, 42]\n",
         "on.pull_request.types",
+        "integer item in `types` filter on `pull_request`",
     ),
     (
         "null workflow_call inputs",
         "on:\n  workflow_call:\n    inputs: null\n",
         "on.workflow_call.inputs",
+        "null `inputs` value on `workflow_call`",
     ),
     (
         "null workflow_call input definition",
         "on:\n  workflow_call:\n    inputs:\n      use-cache: null\n",
         "on.workflow_call.inputs.use-cache",
+        "null input definition for `inputs.use-cache`",
     ),
     (
         "workflow_call input missing type",
         "on:\n  workflow_call:\n    inputs:\n      flag: {}\n",
         "on.workflow_call.inputs.flag",
+        "missing `type` on `inputs.flag`",
     ),
     (
         "workflow_call input sequence type",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: []\n",
         "on.workflow_call.inputs.flag",
+        "non-scalar YAML sequence or mapping `type` on `inputs.flag`",
     ),
     (
         "workflow_call input null type",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: null\n",
         "on.workflow_call.inputs.flag",
+        "null `type` on `inputs.flag`",
     ),
     (
         "workflow_call input bool type",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: true\n",
         "on.workflow_call.inputs.flag",
+        "boolean `type` on `inputs.flag`",
     ),
     (
         "workflow_call input int type",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: 42\n",
         "on.workflow_call.inputs.flag",
+        "integer `type` on `inputs.flag`",
     ),
     (
         "workflow_call input unknown type",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: number\n",
         "on.workflow_call.inputs.flag",
+        "unsupported `type: number` on `inputs.flag`",
     ),
     (
         "workflow_call input non-string description",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        description: []\n",
         "on.workflow_call.inputs.flag",
+        "non-scalar YAML sequence or mapping `description` on `inputs.flag`",
     ),
     (
         "workflow_call input non-bool required",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        required: 'yes'\n",
         "on.workflow_call.inputs.flag",
+        "string `required` on `inputs.flag`",
     ),
     (
         "workflow_call input wrong default type",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        default: 'false'\n",
         "on.workflow_call.inputs.flag",
+        "string `default` for `type: boolean` on `inputs.flag`",
     ),
     (
         "workflow_call input complex default",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: string\n        default: []\n",
         "on.workflow_call.inputs.flag",
+        "non-scalar YAML sequence or mapping `default` for `type: string` on `inputs.flag`",
     ),
     (
         "workflow_call input options on non-choice",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        options: [a]\n",
         "on.workflow_call.inputs.flag",
+        "`options` on non-choice `inputs.flag`",
     ),
     (
         "workflow_call input empty options",
         "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: choice\n        options: []\n",
         "on.workflow_call.inputs.flag",
+        "invalid `options` on `inputs.flag`",
     ),
     (
         "non-mapping event config",
         "on:\n  push: [main]\n",
         "on.push",
+        "non-scalar YAML sequence or mapping configuration on `push`",
     ),
     (
         "key with null value on event",
         "on:\n  push:\n    paths: null\n",
         "on.push",
+        "event key `paths` on `push`",
     ),
 ];
 
 #[test]
 fn out_of_form_trigger_shapes_yield_typed_closed_form_refusal_never_parse_error() {
-    for &(label, on_block, expected_place) in OUT_OF_FORM_TRIGGER_CASES {
+    for &(label, on_block, expected_place, expected_detail) in OUT_OF_FORM_TRIGGER_CASES {
         let yaml = format!(
             "name: sample\n{on_block}jobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n"
         );
         match ClosedWorkflow::parse("sample.yml", &yaml) {
             Err(crate::workflow::ClosedWorkflowError::Refusal(r)) => {
                 assert_eq!(
-                    (r.kind, r.place.as_str()),
-                    (RefusalKind::EventFilter, expected_place),
+                    (r.kind, r.place.as_str(), r.detail.as_str()),
+                    (RefusalKind::EventFilter, expected_place, expected_detail),
                     "case `{label}` gave unexpected refusal: {r}"
                 );
             }
@@ -1750,8 +1794,12 @@ fn out_of_form_trigger_shapes_yield_typed_closed_form_refusal_never_parse_error(
     match ClosedWorkflow::parse("sample.yml", no_jobs_bad) {
         Err(crate::workflow::ClosedWorkflowError::Refusal(r)) => {
             assert_eq!(
-                (r.kind, r.place.as_str()),
-                (RefusalKind::EventFilter, "on.workflow_call.inputs.flag"),
+                (r.kind, r.place.as_str(), r.detail.as_str()),
+                (
+                    RefusalKind::EventFilter,
+                    "on.workflow_call.inputs.flag",
+                    "non-scalar YAML sequence or mapping `type` on `inputs.flag`",
+                ),
                 "unexpected refusal: {r}"
             );
         }

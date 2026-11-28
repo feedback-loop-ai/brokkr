@@ -422,12 +422,7 @@ fn check_reusable_shards(shards: &str, problems: &mut Vec<SplitProblem>) {
     }
     match wf.workflow_call_input("use-cache") {
         Some(input) => {
-            if input
-                .input_type
-                .as_ref()
-                .and_then(WorkflowInputType::parse_scalar)
-                != Some(WorkflowInputType::Boolean)
-            {
+            if input.input_type != WorkflowInputType::Boolean {
                 problems.push(SplitProblem::ShardsUseCacheWrongType);
             }
             if input.default.as_ref().and_then(Scalar::as_bool) != Some(false) {

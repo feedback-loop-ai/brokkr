@@ -180,27 +180,27 @@ done
 LC_ALL=C sort "$scratch/raw_paths" > "$scratch/paths"
 
 : > "$scratch/digests"
-count=0
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   [ ! -L "$path" ] && [ -f "$path" ] || fail "unreadable path: $path"
   digest="$(sha256_file "$path")"
   printf '%s  %s\n' "$digest" "$path" >> "$scratch/digests"
-  count=$((count + 1))
 done < "$scratch/paths"
 
-[ "$count" -gt 0 ] || fail "no files found under .github/actions or .github/workflows"
-
-if "$check_only"; then
-  [ -f "$target" ] || fail "$target is missing; run bash scripts/refresh-workflow-digests.sh"
-  if cmp -s "$scratch/digests" "$target"; then
-    exit 0
-  fi
-  fail "$target is out of date; run bash scripts/refresh-workflow-digests.sh"
-fi
-
-if [ -f "$target" ] && cmp -s "$scratch/digests" "$target"; then
-  exit 0
+if [ -f "$target" ]; then
+  cmp_status=0
+  cmp -s "$scratch/digests" "$target" || cmp_status=$?
+  case "$cmp_status" in
+    0) exit 0 ;;
+    1)
+      if "$check_only"; then
+        fail "$target is out of date; run bash scripts/refresh-workflow-digests.sh"
+      fi
+      ;;
+    *) fail "failed to compare $target (cmp exited $cmp_status)" ;;
+  esac
+elif "$check_only"; then
+  fail "$target is missing; run bash scripts/refresh-workflow-digests.sh"
 fi
 
 tmp_target="$(mktemp "${target}.XXXXXX")"
