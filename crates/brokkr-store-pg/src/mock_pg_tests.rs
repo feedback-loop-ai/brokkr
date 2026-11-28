@@ -408,6 +408,88 @@ fn drop_mock_index(db: &mut MockDb, norm: &str) {
     }
 }
 
+fn resolve_pg_index_operand<'a>(
+    expr: &'a str,
+    params: &'a [Option<String>],
+    schema: &'a str,
+    table: &'a str,
+    index: &'a str,
+    has_table_join: bool,
+) -> Option<&'a str> {
+    let token = expr.trim();
+    if let Some(num) = token.strip_prefix('$') {
+        let idx = num.parse::<usize>().ok()?.checked_sub(1)?;
+        return params.get(idx)?.as_deref();
+    }
+    if let Some(lit) = token.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        return Some(lit);
+    }
+    match token {
+        "n.nspname" | "schemaname" => Some(schema),
+        "t.relname" if has_table_join => Some(table),
+        "tablename" => Some(table),
+        "i.relname" | "indexname" => Some(index),
+        _ => None,
+    }
+}
+
+fn eval_pg_index_predicate(
+    pred: &str,
+    params: &[Option<String>],
+    schema: &str,
+    table: &str,
+    index: &str,
+    has_table_join: bool,
+) -> bool {
+    let trimmed = pred.trim();
+    if trimmed.eq_ignore_ascii_case("true") || trimmed.ends_with(" IS NOT NULL") {
+        return true;
+    }
+    let Some((lhs, rhs)) = trimmed.split_once('=') else {
+        return false;
+    };
+    let (lhs, rhs) = (lhs.trim(), rhs.trim());
+    if lhs == rhs
+        || (matches!(
+            (lhs, rhs),
+            ("t.relnamespace", "n.oid") | ("n.oid", "t.relnamespace")
+        ) && has_table_join)
+    {
+        return true;
+    }
+    match (
+        resolve_pg_index_operand(lhs, params, schema, table, index, has_table_join),
+        resolve_pg_index_operand(rhs, params, schema, table, index, has_table_join),
+    ) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn eval_pg_index_query(db: &MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
+    let (from_part, where_part) = norm
+        .split_once(" WHERE ")
+        .map_or((norm, None), |(f, w)| (f, Some(w)));
+    let has_table_join = from_part.contains("JOIN pg_class t ON t.oid = ix.indrelid")
+        || from_part.contains("JOIN pg_class t ON ix.indrelid = t.oid");
+    let matches_row = |schema: &str, table: &str, index: &str| match where_part {
+        None => true,
+        Some(clause) => clause.split(" OR ").any(|branch| {
+            branch.split(" AND ").all(|pred| {
+                eval_pg_index_predicate(pred, params, schema, table, index, has_table_join)
+            })
+        }),
+    };
+    let rows = db
+        .indexes
+        .iter()
+        .filter(|((schema, index), table)| matches_row(schema, table, index))
+        .map(|_| vec![vec![Some("1".into())]])
+        .next()
+        .unwrap_or_default();
+    Ok((rows, "SELECT 1".into()))
+}
+
 fn exec_schema(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Option<SqlRes> {
     if norm == "SELECT current_schema()" {
         return Some(Ok((
@@ -415,17 +497,9 @@ fn exec_schema(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Option
             "SELECT 1".into(),
         )));
     }
-    if norm.starts_with("SELECT 1 FROM pg_index ix") {
-        let schema = pstr(params, 0);
-        let table = pstr(params, 1);
-        let index = pstr(params, 2);
-        let rows = db
-            .indexes
-            .get(&(schema.to_string(), index.to_string()))
-            .filter(|owner| owner.as_str() == table)
-            .map(|_| vec![vec![Some("1".into())]])
-            .unwrap_or_default();
-        return Some(Ok((rows, "SELECT 1".into())));
+    if norm.starts_with("SELECT 1 FROM pg_index ix") || norm.starts_with("SELECT 1 FROM pg_indexes")
+    {
+        return Some(eval_pg_index_query(db, norm, params));
     }
     if norm
         .starts_with("SELECT column_name, data_type, is_nullable FROM information_schema.columns")

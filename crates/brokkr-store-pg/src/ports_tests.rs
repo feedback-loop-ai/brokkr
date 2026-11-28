@@ -928,8 +928,30 @@ fn projection_init_drops_legacy_index_only_in_current_schema() {
         assert!(db
             .indexes
             .contains_key(&("other_schema".into(), LEGACY_IDX.into())));
+        let want_lock_sql = format!(
+            "LOCK TABLE \"{}\".\"brokkr_projected_runs\" IN ACCESS EXCLUSIVE MODE",
+            schema.replace('"', "\"\"")
+        );
+        let lock_pos = db
+            .queries
+            .iter()
+            .position(|q| q == &want_lock_sql)
+            .expect("ACCESS EXCLUSIVE lock on brokkr_projected_runs recorded");
+        let check_pos = db
+            .queries
+            .iter()
+            .position(|q| q.starts_with("SELECT 1 FROM pg_index ix"))
+            .expect("legacy index ownership query recorded");
+        assert!(lock_pos < check_pos);
         match want_drop_sql {
-            Some(sql) => assert!(db.queries.iter().any(|q| q == sql)),
+            Some(sql) => {
+                let drop_pos = db
+                    .queries
+                    .iter()
+                    .position(|q| q == sql)
+                    .expect("DROP INDEX recorded");
+                assert!(check_pos < drop_pos);
+            }
             None => assert!(db.queries.iter().all(|q| !q.starts_with("DROP INDEX"))),
         }
     }

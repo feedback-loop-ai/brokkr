@@ -450,6 +450,11 @@ fn drop_legacy_indexes(
     let schema = current_schema(tx)?;
     let quoted_schema = quote_pg_ident(&schema);
     for legacy in legacy_indexes {
+        let lock_sql = format!(
+            "LOCK TABLE {quoted_schema}.{} IN ACCESS EXCLUSIVE MODE",
+            quote_pg_ident(legacy.table)
+        );
+        tx.query(&lock_sql, &[])?;
         let params = [
             Some(schema.as_str()),
             Some(legacy.table),

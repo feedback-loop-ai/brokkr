@@ -576,8 +576,7 @@ fn is_tx_ending_tag(tag: Option<&str>) -> bool {
 }
 
 fn can_fail_at_sync(initial_tx_status: u8, tag: &str) -> bool {
-    (initial_tx_status == b'I' && tag != "BEGIN" && !is_tx_ending_tag(Some(tag)))
-        || (initial_tx_status == b'T' && matches!(tag, "COMMIT" | "END"))
+    initial_tx_status == b'I' && tag != "BEGIN" && !is_tx_ending_tag(Some(tag))
 }
 
 fn parse_ready_for_query(body: &[u8]) -> Result<u8, PgError> {

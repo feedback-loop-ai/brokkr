@@ -1140,6 +1140,13 @@ fn duplicate_error_frames() -> Vec<(u8, Vec<u8>)> {
     ]
 }
 
+fn cmd_then_error(tag: &[u8]) -> Vec<(u8, Vec<u8>)> {
+    vec![
+        (b'C', tag.to_vec()),
+        (b'E', error_payload("40001", "boom", None)),
+    ]
+}
+
 #[test]
 fn wire_rejects_mixed_error_and_post_completion_row_frames() {
     // All fixtures without ReadyForQuery prove immediate rejection on the offending frame.
@@ -1315,7 +1322,8 @@ fn wire_preserves_sync_error_after_command_complete_for_deferred_constraints() {
     drop(c_auto);
     h_auto.join().unwrap();
 
-    // 2. Explicit COMMIT failing at Sync after CommandComplete("COMMIT") preserves SQLSTATE.
+    // 2. Explicit COMMIT sending CommandComplete("COMMIT") followed by ErrorResponse with no
+    //    ReadyForQuery must be rejected immediately as a protocol error and poison the socket.
     let (p_commit, h_commit) = spawn_one_shot(|mut s| {
         complete_trust_startup(&mut s);
         send_begin_ok(&mut s);
@@ -1327,18 +1335,22 @@ fn wire_preserves_sync_error_after_command_complete_for_deferred_constraints() {
             b'E',
             &error_payload("40001", "could not serialize access", None),
         );
-        send_frame(&mut s, b'Z', b"I");
         let _ = read_client_frame(&mut s);
     });
-    let cfg_commit = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_commit}/db")).unwrap();
+    let cfg_commit = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_commit}/db"))
+        .unwrap()
+        .with_io_timeout(Duration::from_millis(200));
     let mut c_commit = PgClient::connect(&cfg_commit).expect("connect");
     let commit_err = c_commit
         .in_transaction(
             |tx| tx.query("INSERT INTO t VALUES (1)", &[]).map(|_| ()),
             |e| e,
         )
-        .expect_err("commit sync error");
-    assert_eq!(commit_err.sqlstate(), Some("40001"));
+        .expect_err("mixed COMMIT+ErrorResponse must fail immediately");
+    assert!(matches!(
+        commit_err,
+        PgError::Protocol(ref msg) if msg == "duplicate query completion before ReadyForQuery"
+    ));
     assert!(matches!(
         c_commit.query("SELECT 1", &[]),
         Err(PgError::ConnectionClosed)
@@ -1348,30 +1360,20 @@ fn wire_preserves_sync_error_after_command_complete_for_deferred_constraints() {
 
 #[test]
 fn wire_tx_rejects_active_status_after_error_and_preserves_compromise_on_close() {
-    // 1. Inside in_transaction (and on BEGIN itself), non-commit C+E and duplicate E reject
-    //    immediately without waiting for ReadyForQuery; invalid Z status after E poisons socket.
+    // 1. Inside in_transaction (and on BEGIN itself), any C+E (including COMMIT/ROLLBACK/
+    //    END/ABORT) and duplicate E reject immediately without waiting for ReadyForQuery;
+    //    invalid Z status after E poisons socket.
+    const DUP_MSG: &str = "duplicate query completion before ReadyForQuery";
     for (send_begin, frames, want_msg) in [
-        (
-            true,
-            vec![
-                (b'C', b"SELECT 1\0".to_vec()),
-                (b'E', error_payload("40001", "boom", None)),
-            ],
-            "duplicate query completion before ReadyForQuery",
-        ),
+        (true, cmd_then_error(b"SELECT 1\0"), DUP_MSG),
+        (true, cmd_then_error(b"COMMIT\0"), DUP_MSG),
+        (true, cmd_then_error(b"ROLLBACK\0"), DUP_MSG),
+        (true, cmd_then_error(b"END\0"), DUP_MSG),
+        (true, cmd_then_error(b"ABORT\0"), DUP_MSG),
         (
             true,
             duplicate_error_frames(),
             "duplicate query completion before ReadyForQuery",
-        ),
-        (
-            true,
-            vec![
-                (b'C', b"COMMIT\0".to_vec()),
-                (b'E', error_payload("40001", "boom", None)),
-                (b'Z', b"E".to_vec()),
-            ],
-            "unexpected ReadyForQuery status 0x45 after Sync ErrorResponse",
         ),
         (
             true,
