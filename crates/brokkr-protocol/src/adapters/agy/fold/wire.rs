@@ -4,6 +4,9 @@
 //! Wherever the agy driver reads a JSON object into a typed struct from bytes
 //! it did not write itself, [`Object`] requires a JSON map at every depth of
 //! the struct so an array in the place of an object is never read by position.
+//! Likewise, every name enum the fold reads ([`Event`], [`StepType`],
+//! [`StepState`], [`Status`]) is read strictly from a JSON string via
+//! [`read_name`], never a one-key object or another JSON type.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -40,13 +43,43 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
     }
 }
 
+/// Deserializes a name strictly from a JSON string, rejecting serde's derived
+/// externally-tagged one-key object form (such as `{"init": null}`) (`#1227`).
+fn read_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    struct NameVisitor;
+
+    impl Visitor<'_> for NameVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a JSON string")
+        }
+
+        fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+            Ok(value.to_owned())
+        }
+    }
+
+    deserializer.deserialize_string(NameVisitor)
+}
+
 /// The rows of a turn: the one list of the events the fold knows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::adapters::agy) enum Event {
     Init,
     StepUpdate,
     Result,
+}
+
+impl<'de> Deserialize<'de> for Event {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match read_name(deserializer)?.as_str() {
+            "init" => Ok(Event::Init),
+            "step_update" => Ok(Event::StepUpdate),
+            "result" => Ok(Event::Result),
+            _ => Err(serde::de::Error::custom("unknown event")),
+        }
+    }
 }
 
 impl Event {
@@ -247,20 +280,34 @@ pub(super) struct Step {
     pub(super) usage: Object<Usage>,
 }
 
-#[derive(Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(PartialEq, Eq)]
 pub(super) enum StepType {
     AgentResponse,
-    #[serde(other)]
     Other,
 }
 
-#[derive(Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+impl<'de> Deserialize<'de> for StepType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match read_name(deserializer)?.as_str() {
+            "agent_response" => StepType::AgentResponse,
+            _ => StepType::Other,
+        })
+    }
+}
+
+#[derive(PartialEq, Eq)]
 pub(super) enum StepState {
     Done,
-    #[serde(other)]
     Other,
+}
+
+impl<'de> Deserialize<'de> for StepState {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match read_name(deserializer)?.as_str() {
+            "DONE" => StepState::Done,
+            _ => StepState::Other,
+        })
+    }
 }
 
 /// A turn's `result`. Its `status` is named; `denied_actions`, where
@@ -286,12 +333,19 @@ impl Ending {
 }
 
 /// A result's status: `SUCCESS`, or any other word, which is named.
-#[derive(Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(super) enum Status {
     Success,
-    #[serde(untagged)]
     Other(String),
+}
+
+impl<'de> Deserialize<'de> for Status {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let word = read_name(deserializer)?;
+        Ok(match word.as_str() {
+            "SUCCESS" => Status::Success,
+            _ => Status::Other(word),
+        })
+    }
 }
 
 impl Status {

@@ -58,6 +58,13 @@ fn an_unread_call_and_a_name_only_in_the_arguments_are_denied() {
         ("missing-tool-call", r#"{"name": "run_command"}"#),
         ("hook-call-arr", r#"[{"name": "run_command"}]"#),
         ("tool-call-arr", r#"{"toolCall": ["run_command"]}"#),
+        ("tool-call-null", r#"{"toolCall": null}"#),
+        ("name-null", r#"{"toolCall": {"name": null}}"#),
+        ("name-int", r#"{"toolCall": {"name": 42}}"#),
+        (
+            "name-one-key-obj",
+            r#"{"toolCall": {"name": {"run_command": null}}}"#,
+        ),
     ] {
         assert_eq!(
             answered(&["run_command"], input),

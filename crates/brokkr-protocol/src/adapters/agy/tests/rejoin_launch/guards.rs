@@ -6,6 +6,25 @@ use crate::adapters::agy::fold::{Event, Failed, Failure, Verdict};
 use crate::adapters::agy::rejoin::keep_rejoin;
 use crate::adapters::agy::restore::check_owned_target;
 
+fn assert_unconfirmed_rejoin_stream(raw: &[u8], label: &str) {
+    let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
+    let mut spec = FakeAgySpec::turn(UUID_A, "", Some("mutated-db"), ("note.txt", "mutated"));
+    spec.raw_stdout = Some(raw);
+    spec.sleep_after_first = true;
+    let (res, emitted) = drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
+    let inv = res.unwrap_or_else(|e| panic!("{label}: unsettled must return Ok, got {e:?}"));
+    assert_eq!(inv.launch, LaunchTerminal::Unconfirmed, "{label}");
+    assert!(inv.answer.is_none(), "{label}");
+    assert!(!world.seat().join("after_sleep.marker").exists(), "{label}");
+    assert!(started_row(&emitted).is_none(), "{label}");
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"orig-db",
+        "{label}"
+    );
+    assert_lock_free(&conv);
+}
+
 fn assert_declined_before_lock(
     mut world: World,
     conv: &Path,
@@ -99,23 +118,7 @@ fn r2_unconfirmed_rejoin_stops_on_any_non_confirming_first_line() {
     ];
 
     for (label, raw) in cases {
-        let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
-        let mut spec = FakeAgySpec::turn(UUID_A, "", Some("mutated-db"), ("note.txt", "mutated"));
-        spec.raw_stdout = Some(&raw);
-        spec.sleep_after_first = true;
-        let (res, emitted) =
-            drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
-        let inv = res.unwrap_or_else(|e| panic!("{label}: unsettled must return Ok, got {e:?}"));
-        assert_eq!(inv.launch, LaunchTerminal::Unconfirmed, "{label}");
-        assert!(inv.answer.is_none(), "{label}");
-        assert!(!world.seat().join("after_sleep.marker").exists(), "{label}");
-        assert!(started_row(&emitted).is_none(), "{label}");
-        assert_eq!(
-            std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-            b"orig-db",
-            "{label}"
-        );
-        assert_lock_free(&conv);
+        assert_unconfirmed_rejoin_stream(&raw, label);
     }
 
     let mut cold_fold = AgyFold::new(FLASH, &[]);
@@ -381,21 +384,7 @@ fn t1_array_owned_target_and_array_init_first_line_are_rejected() {
         "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":[\"{FLASH}\"]}}\n{valid_init}{ok_res}"
     )
     .into_bytes();
-    let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
-    let mut spec = FakeAgySpec::turn(UUID_A, "", Some("mutated-db"), ("note.txt", "mutated"));
-    spec.raw_stdout = Some(&array_init_stream);
-    spec.sleep_after_first = true;
-    let (res, emitted) = drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
-    let inv = res.expect("array init on rejoin must end unsettled");
-    assert_eq!(inv.launch, LaunchTerminal::Unconfirmed);
-    assert!(inv.answer.is_none());
-    assert!(!world.seat().join("after_sleep.marker").exists());
-    assert!(started_row(&emitted).is_none());
-    assert_eq!(
-        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-        b"orig-db"
-    );
-    assert_lock_free(&conv);
+    assert_unconfirmed_rejoin_stream(&array_init_stream, "array-init-on-rejoin");
 }
 
 #[test]
@@ -504,4 +493,392 @@ fn t4_lease_drop_unlocks_before_close_even_when_dup_fd_outlives_it() {
     drop(lease);
     assert_lock_free(&conv);
     drop(dup_fd);
+}
+
+fn cold_hold_new() -> LaunchHold {
+    LaunchHold::new(
+        "agy",
+        LaunchPlan::cold(Vec::new(), "agy-conversation", None),
+    )
+}
+
+fn rejoin_hold_a() -> LaunchHold {
+    rejoin_hold(UUID_A)
+}
+
+fn fold_lines(
+    mut hold: LaunchHold,
+    lines: &[&str],
+) -> (Verdict, Map<String, Value>, LaunchHold, bool, bool, usize) {
+    let mut fold = AgyFold::new(FLASH, &[]);
+    let mut meta = Map::new();
+    let mut turns = 0usize;
+    for line in lines {
+        assert!(
+            matches!(
+                fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| turns += 1),
+                Line::Read
+            ),
+            "expected Line::Read for {line}"
+        );
+    }
+    let verdict = fold.verdict(0, false);
+    let pinned = fold.pinned();
+    let signed_out = fold.signed_out();
+    (verdict, meta, hold, pinned, signed_out, turns)
+}
+
+#[test]
+fn v1_one_key_object_event_leaves_rejoin_unconfirmed_and_passes_over_cold() {
+    let valid_init = format!(
+        "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":{{\"model\":\"{FLASH}\"}}}}\n"
+    );
+    let ok_res = "{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"OK\"}}\n";
+    let obj_init = format!(
+        "{{\"event\":{{\"init\":null}},\"conversation_id\":\"{UUID_A}\",\"init\":{{\"model\":\"{FLASH}\"}}}}"
+    );
+    let obj_step = r#"{"event":{"step_update":null},"step_update":{"step_type":"agent_response","state":"DONE"}}"#;
+    let obj_res = r#"{"event":{"result":null},"result":{"status":"SUCCESS","response":"WRONG"}}"#;
+
+    let rejoin_stream = format!("{obj_init}\n{valid_init}{ok_res}").into_bytes();
+    assert_unconfirmed_rejoin_stream(&rejoin_stream, "one-key-object-init-on-rejoin");
+
+    let (verdict, _, _, pinned, _, turns) = fold_lines(
+        cold_hold_new(),
+        &[
+            obj_init.as_str(),
+            valid_init.trim_end(),
+            obj_step,
+            obj_res,
+            ok_res.trim_end(),
+        ],
+    );
+    assert_eq!(verdict, Verdict::Answer("OK".into()));
+    assert!(pinned);
+    assert_eq!(turns, 0);
+
+    let (verdict, _, _, pinned, _, _) =
+        fold_lines(cold_hold_new(), &[obj_init.as_str(), ok_res.trim_end()]);
+    assert!(!pinned);
+    let Verdict::Refused(refusal) = verdict else {
+        panic!("expected model_unconfirmed refusal, got {verdict:?}");
+    };
+    assert!(refusal.words().starts_with("model_unconfirmed:"));
+}
+
+#[test]
+fn v1_one_key_object_step_type_state_and_status_fail_unread_cold_and_rejoin() {
+    let init_ok =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let cases = [
+        (
+            "step-type-known-obj",
+            r#"{"event":"step_update","step_update":{"step_type":{"agent_response":null},"state":"DONE"}}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "step-type-other-obj",
+            r#"{"event":"step_update","step_update":{"step_type":{"tool":null},"state":"DONE"}}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "step-type-null",
+            r#"{"event":"step_update","step_update":{"step_type":null,"state":"DONE"}}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "state-known-obj",
+            r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":{"DONE":null}}}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "state-other-obj",
+            r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":{"ERROR":null}}}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "state-null",
+            r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":null}}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "status-known-obj",
+            r#"{"event":"result","result":{"status":{"SUCCESS":null},"response":"OK"}}"#,
+            Event::Result,
+        ),
+        (
+            "status-other-obj",
+            r#"{"event":"result","result":{"status":{"ERROR":null},"response":"OK"}}"#,
+            Event::Result,
+        ),
+        (
+            "status-null",
+            r#"{"event":"result","result":{"status":null,"response":"OK"}}"#,
+            Event::Result,
+        ),
+    ];
+    for (mode, hold_init) in [
+        ("cold", cold_hold_new as fn() -> LaunchHold),
+        ("rejoin", rejoin_hold_a as fn() -> LaunchHold),
+    ] {
+        for (label, bad_line, expected) in cases {
+            assert_fold_unread(
+                hold_init,
+                &[init_ok.as_str(), bad_line],
+                expected,
+                &format!("{mode}-{label}"),
+            );
+        }
+    }
+}
+
+#[test]
+fn v2_explicit_null_matches_absence_for_admitted_optional_members() {
+    let init_ok =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let init_absent = format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{}}}}"#);
+    let init_null =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":null}}}}"#);
+    let ok_res = r#"{"event":"result","result":{"status":"SUCCESS","response":"OK"}}"#;
+
+    for (mode, hold_init, expect_terminal) in [
+        (
+            "cold",
+            cold_hold_new as fn() -> LaunchHold,
+            LaunchTerminal::Cold,
+        ),
+        (
+            "rejoin",
+            rejoin_hold_a as fn() -> LaunchHold,
+            LaunchTerminal::Resumed,
+        ),
+    ] {
+        let (v_abs, _, h_abs, p_abs, _, _) =
+            fold_lines(hold_init(), &[init_absent.as_str(), ok_res]);
+        let (v_null, _, h_null, p_null, _, _) =
+            fold_lines(hold_init(), &[init_null.as_str(), ok_res]);
+        assert_eq!(v_abs, v_null, "{mode} init.model");
+        assert_eq!(
+            h_abs.terminal(),
+            expect_terminal,
+            "{mode} init.model absent"
+        );
+        assert_eq!(h_null.terminal(), expect_terminal, "{mode} init.model null");
+        assert!(
+            !p_abs && !p_null,
+            "{mode} init.model must leave pin unconfirmed"
+        );
+        let Verdict::Refused(refusal) = v_null else {
+            panic!("{mode}: expected model_unconfirmed, got {v_null:?}");
+        };
+        assert!(refusal.words().starts_with("model_unconfirmed:"));
+
+        let res_turns_null =
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","num_turns":null}}"#;
+        let (v_abs, m_abs, _, _, _, _) = fold_lines(hold_init(), &[init_ok.as_str(), ok_res]);
+        let (v_null, m_null, _, _, _, _) =
+            fold_lines(hold_init(), &[init_ok.as_str(), res_turns_null]);
+        assert_eq!(v_abs, Verdict::Answer("OK".into()), "{mode} num_turns abs");
+        assert_eq!(v_abs, v_null, "{mode} num_turns");
+        assert_eq!(m_abs.get("num_turns"), None, "{mode} num_turns abs meta");
+        assert_eq!(m_null.get("num_turns"), None, "{mode} num_turns null meta");
+
+        let res_err_null =
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","error":null}}"#;
+        let (v_null, _, _, _, so_null, _) =
+            fold_lines(hold_init(), &[init_ok.as_str(), res_err_null]);
+        assert_eq!(v_abs, v_null, "{mode} error");
+        assert!(!so_null, "{mode} error null not signed out");
+    }
+
+    let mut fold = AgyFold::new(FLASH, &[]);
+    let mut hold = rejoin_hold_a();
+    let mut meta = Map::new();
+    let null_id =
+        format!(r#"{{"event":"init","conversation_id":null,"init":{{"model":"{FLASH}"}}}}"#);
+    assert!(matches!(
+        fold.read(null_id.as_bytes(), &mut meta, &mut hold, &mut |_| {}),
+        Line::Unsettled
+    ));
+    assert_eq!(hold.terminal(), LaunchTerminal::Unconfirmed);
+}
+
+fn assert_bad_usage_fields(init_ok: &str, raw: &str, tag: &str) {
+    let usage_fields = [
+        "input_tokens",
+        "output_tokens",
+        "thinking_tokens",
+        "cache_read_tokens",
+    ];
+    for (mode, hold_init) in [
+        ("cold", cold_hold_new as fn() -> LaunchHold),
+        ("rejoin", rejoin_hold_a as fn() -> LaunchHold),
+    ] {
+        for field in usage_fields {
+            let row = format!(
+                r#"{{"event":"result","result":{{"status":"SUCCESS","response":"OK","usage":{{"{field}":{raw}}}}}}}"#
+            );
+            assert_fold_unread(
+                hold_init,
+                &[init_ok, row.as_str()],
+                Event::Result,
+                &format!("{mode}-result-usage-{field}-{tag}"),
+            );
+        }
+    }
+    for field in usage_fields {
+        let row = format!(
+            r#"{{"event":"step_update","step_update":{{"step_type":"agent_response","state":"DONE","usage":{{"{field}":{raw}}}}}}}"#
+        );
+        assert_fold_unread(
+            rejoin_hold_a,
+            &[init_ok, row.as_str()],
+            Event::StepUpdate,
+            &format!("rejoin-step-usage-{field}-{tag}"),
+        );
+    }
+}
+
+#[test]
+fn v2_explicit_null_for_defaulted_and_count_members_fails_unread() {
+    let init_ok =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let result_cases = [
+        (
+            "result-response-null",
+            r#"{"event":"result","result":{"status":"SUCCESS","response":null}}"#,
+        ),
+        (
+            "result-usage-null",
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","usage":null}}"#,
+        ),
+        (
+            "result-denied-null",
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","denied_actions":null}}"#,
+        ),
+        (
+            "result-denied-elem-null",
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","denied_actions":[null]}}"#,
+        ),
+        (
+            "result-denied-action-null",
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","denied_actions":[{"action":null}]}}"#,
+        ),
+    ];
+    for (mode, hold_init) in [
+        ("cold", cold_hold_new as fn() -> LaunchHold),
+        ("rejoin", rejoin_hold_a as fn() -> LaunchHold),
+    ] {
+        for (label, row) in result_cases {
+            assert_fold_unread(
+                hold_init,
+                &[init_ok.as_str(), row],
+                Event::Result,
+                &format!("{mode}-{label}"),
+            );
+        }
+    }
+    assert_bad_usage_fields(&init_ok, "null", "null");
+}
+
+#[test]
+fn v2_non_uint_counts_fail_unread() {
+    let init_ok =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let bad_counts = [
+        ("float", "1.5"),
+        ("whole-float", "1.0"),
+        ("neg", "-1"),
+        ("str", "\"2\""),
+    ];
+    for (clabel, raw) in bad_counts {
+        let turns_row = format!(
+            r#"{{"event":"result","result":{{"status":"SUCCESS","response":"OK","num_turns":{raw}}}}}"#
+        );
+        for (mode, hold_init) in [
+            ("cold", cold_hold_new as fn() -> LaunchHold),
+            ("rejoin", rejoin_hold_a as fn() -> LaunchHold),
+        ] {
+            assert_fold_unread(
+                hold_init,
+                &[init_ok.as_str(), turns_row.as_str()],
+                Event::Result,
+                &format!("{mode}-num_turns-{clabel}"),
+            );
+        }
+        assert_bad_usage_fields(&init_ok, raw, clabel);
+    }
+}
+
+#[test]
+fn v2_wrong_type_string_members_fail_unread() {
+    let init_ok =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let bad_strings = [
+        ("int", "123"),
+        ("bool", "true"),
+        ("arr", "[]"),
+        ("obj", "{}"),
+    ];
+
+    for (mode, hold_init) in [
+        ("cold", cold_hold_new as fn() -> LaunchHold),
+        ("rejoin", rejoin_hold_a as fn() -> LaunchHold),
+    ] {
+        for (slabel, raw) in bad_strings {
+            for (field, row) in [
+                (
+                    "response",
+                    format!(
+                        r#"{{"event":"result","result":{{"status":"SUCCESS","response":{raw}}}}}"#
+                    ),
+                ),
+                (
+                    "error",
+                    format!(
+                        r#"{{"event":"result","result":{{"status":"SUCCESS","response":"OK","error":{raw}}}}}"#
+                    ),
+                ),
+                (
+                    "denied-action",
+                    format!(
+                        r#"{{"event":"result","result":{{"status":"SUCCESS","response":"OK","denied_actions":[{{"action":{raw}}}]}}}}"#
+                    ),
+                ),
+            ] {
+                assert_fold_unread(
+                    hold_init,
+                    &[init_ok.as_str(), row.as_str()],
+                    Event::Result,
+                    &format!("{mode}-result-{field}-{slabel}"),
+                );
+            }
+        }
+    }
+
+    for (slabel, raw) in bad_strings {
+        let bad_init =
+            format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":{raw}}}}}"#);
+        assert_fold_unread(
+            cold_hold_new,
+            &[bad_init.as_str()],
+            Event::Init,
+            &format!("cold-init-model-{slabel}"),
+        );
+        let mut fold = AgyFold::new(FLASH, &[]);
+        let mut hold = rejoin_hold_a();
+        let mut meta = Map::new();
+        assert!(
+            matches!(
+                fold.read(bad_init.as_bytes(), &mut meta, &mut hold, &mut |_| {}),
+                Line::Unsettled
+            ),
+            "rejoin-init-model-{slabel}"
+        );
+        assert_eq!(
+            hold.terminal(),
+            LaunchTerminal::Unconfirmed,
+            "rejoin-init-model-{slabel}"
+        );
+    }
 }

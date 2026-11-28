@@ -815,7 +815,23 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   `originating_harness_version`) — is held strictly to a JSON object at every
   depth of the struct, so an array in the place of that object is never read
   by position; every recorded stream writes objects, so this refuses nothing
-  measured. Stated limit (`#1448`): the sealed members of the start input
+  measured. Likewise, every name the agy driver reads (`event`,
+  `step_update.step_type`, `step_update.state`, and `result.status`) is held
+  strictly to a JSON string, never a one-key object or any other JSON type: for
+  `event`, any non-string names no event the fold knows and is treated as any
+  other line naming none (so it never confirms a rejoin); for `step_type`,
+  `state`, and `status`, any non-string leaves the row unreadable and fails the
+  turn as an unread row of its event, on a cold turn and on a rejoin alike;
+  every recorded stream writes strings, so this refuses nothing measured. Where
+  a stdout member's absence is admitted (`init.model`, `result.num_turns`, and
+  `result.error`), an explicit `null` reads as absence and yields the same
+  verdict (so a rejoin whose first line writes `init.model: null` leaves the
+  model pin unconfirmed just as an omitted `model` does); by contrast, an
+  explicit `null` in the place of `step_update.usage` on a rejoin (the turn's
+  sole source of use) or in the place of a defaulted member (`result.response`,
+  `result.usage`, `result.denied_actions`, or a token count in `usage`) leaves
+  the row unreadable and fails the turn. Stated limit (`#1448`): the sealed
+  members of the start input
   (`serving_inputs`, the sealed reach, and any other member a driver reads
   through readers every harness shares) are written by the engine in the same
   binary and read by shared code outside agy's modules; written as a positional
