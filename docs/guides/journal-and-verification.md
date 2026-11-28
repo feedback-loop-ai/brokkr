@@ -159,11 +159,12 @@ note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is ad
 released 1 exhibit(s) for prefix-selectors-for-the-read-su-…
 ```
 
-A run parked on **`GATE-MOVED-HEAD`** is saying the repository head moved
-across a gate's own span: a gate is chartered to read and report, not to
-write ([decision 0041](../decisions/0041-one-office-per-seat.md)), and
-this park is the engine's only check of it: it sees a moved head, not an
-uncommitted write. The check is
+A gate is chartered to read and report ([decision 0041](../decisions/0041-one-office-per-seat.md)).
+A run parks as **`GATE-MOVED-HEAD`** if HEAD moves across the gate's span.
+If the same HEAD reads at both ends, a change to tracked content (staged
+or unstaged) or an unreadable tree reading parks as **`GATE-CHANGED-TREE`**.
+That park's evidence lists up to 50 changed paths and the count omitted,
+or names the unreadable ends. A moved HEAD takes precedence. The head check is
 per gate step, not per effect — the head is observed when a gate step
 starts, or when a gate seat that has no steps of its own starts, and it
 is compared at that same step's end. So an author that lawfully commits

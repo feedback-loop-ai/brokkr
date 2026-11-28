@@ -60,21 +60,24 @@ impl fmt::Display for Run {
     }
 }
 
-/// Why a run parks: the gate that moved the operated repo's HEAD, which
-/// the engine answers apart, or the reason as it was stated.
+/// Why a run parks: a changed repository or unreadable tree at a gate,
+/// or the reason as it was stated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParkReason {
     /// [`gate_moved_head::PREFIX`], exactly.
     GateMovedHead,
+    /// [gate_moved_head::TREE_PREFIX], exactly.
+    GateChangedTree,
     Stated(String),
 }
 
 impl ParkReason {
     /// The reason a park's text names: the one way to read it from text.
     pub fn read(text: String) -> ParkReason {
-        match text == gate_moved_head::PREFIX {
-            true => ParkReason::GateMovedHead,
-            false => ParkReason::Stated(text),
+        match text.as_str() {
+            gate_moved_head::PREFIX => ParkReason::GateMovedHead,
+            gate_moved_head::TREE_PREFIX => ParkReason::GateChangedTree,
+            _ => ParkReason::Stated(text),
         }
     }
 
@@ -82,6 +85,7 @@ impl ParkReason {
     pub fn as_str(&self) -> &str {
         match self {
             ParkReason::GateMovedHead => gate_moved_head::PREFIX,
+            ParkReason::GateChangedTree => gate_moved_head::TREE_PREFIX,
             ParkReason::Stated(text) => text,
         }
     }

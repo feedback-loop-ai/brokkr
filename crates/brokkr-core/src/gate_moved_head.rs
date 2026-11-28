@@ -1,14 +1,16 @@
-//! The GATE-MOVED-HEAD marker: a gate that moved the operated repo's
-//! HEAD closes its effect indeterminate with this marker and the two
-//! observed heads packed into the frozen contract's free-text `reason`.
-//! Every writer and reader goes through this codec, so the bytes the
-//! journal carries are spelled once.
+//! A gate that moved the operated repo's HEAD or changed its tracked
+//! tree closes its effect indeterminate with a marker and evidence
+//! packed into the frozen contract's free-text `reason`.
+//! This module writes and reads both markers.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 /// The marker, and the park reason a marked indeterminate folds to.
 pub const PREFIX: &str = "GATE-MOVED-HEAD";
+
+/// The marker for changed or unreadable tracked tree content.
+pub const TREE_PREFIX: &str = "GATE-CHANGED-TREE";
 
 const DRIVER_STDERR_SUFFIX: &str = "; driver stderr: ";
 
@@ -25,10 +27,12 @@ pub struct MovedHead {
 /// The indeterminate reason that records `moved`: the marker, one space,
 /// and the evidence as compact JSON.
 pub fn encode(moved: &MovedHead) -> String {
-    format!(
-        "{PREFIX} {}",
-        serde_json::to_string(moved).expect("two optional strings always serialize")
-    )
+    encode_marked(PREFIX, moved)
+}
+
+fn encode_marked(prefix: &str, evidence: &impl Serialize) -> String {
+    let evidence = serde_json::to_string(evidence).expect("gate evidence always serializes");
+    format!("{prefix} {evidence}")
 }
 
 /// `None` when `reason` does not carry the marker. A marked reason whose
@@ -38,7 +42,24 @@ pub fn encode(moved: &MovedHead) -> String {
 /// a `serde_json::Value` reader keeps any JSON a journal carries. Either
 /// reader accepts the driver-stderr evidence suffix after the JSON.
 pub fn decode<T: DeserializeOwned>(reason: &str) -> Option<Result<T, serde_json::Error>> {
-    let rest = reason.strip_prefix(PREFIX)?.strip_prefix(' ')?;
+    decode_marked(PREFIX, reason)
+}
+
+/// Write a tracked-tree marker and its evidence, framed as [encode] frames.
+pub fn encode_tree(evidence: &impl Serialize) -> String {
+    encode_marked(TREE_PREFIX, evidence)
+}
+
+/// Read a tracked-tree marker and its evidence, with the same suffix as [decode].
+pub fn decode_tree<T: DeserializeOwned>(reason: &str) -> Option<Result<T, serde_json::Error>> {
+    decode_marked(TREE_PREFIX, reason)
+}
+
+fn decode_marked<T: DeserializeOwned>(
+    prefix: &str,
+    reason: &str,
+) -> Option<Result<T, serde_json::Error>> {
+    let rest = reason.strip_prefix(prefix)?.strip_prefix(' ')?;
     let mut json = serde_json::Deserializer::from_str(rest);
     Some(T::deserialize(&mut json).and_then(|value| {
         let trailing = &rest[json.into_iter::<T>().byte_offset()..];

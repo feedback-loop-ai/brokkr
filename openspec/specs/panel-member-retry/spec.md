@@ -448,8 +448,8 @@ In the retry's attempt only the named members SHALL run; every other member's ve
 
 #### Scenario: The tree dirtied inside the carrying attempt
 
-- **WHEN** a carrying all-gate panel runs on the admitted head and a file under the operated repository is edited and left so before the panel ends, by an actor outside its members
-- **THEN** the attempt ends `effect/indeterminate` with the sentence naming the tree as `dirty` at the attempt's end, no aggregate is published, the terminal fact records `tree.at_end` as `dirty`, and the next `--member` is refused naming that end, as the third requirement's scenario `The tree at a carrying attempt's end` reads it
+- **WHEN** a carrying panel runs on the admitted head and a tracked file is edited and left so before the panel ends
+- **THEN** no aggregate is published. For an all-work panel, the attempt ends `effect/indeterminate` with the sentence naming the tree as `dirty` at the attempt's end, the terminal fact records `tree.at_end` as `dirty`, and the next `--member` is refused naming that end, as the third requirement's scenario `The tree at a carrying attempt's end` reads it. For an all-gate panel, the attempt ends `effect/indeterminate` and the run parks as `GATE-CHANGED-TREE`, just as a moved head ends and parks it as `GATE-MOVED-HEAD`. The next `--member` is refused if the tree still reads `dirty` at the command
 
 #### Scenario: A plain retry's span is not asked
 

@@ -724,6 +724,8 @@ fn close(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let normal = Cursor::Park {
         reason: if gate_moved_head::decode::<Value>(detail).is_some() {
             ParkReason::GateMovedHead
+        } else if gate_moved_head::decode_tree::<Value>(detail).is_some() {
+            ParkReason::GateChangedTree
         } else {
             ParkReason::read(format!("effect {effect_id} indeterminate: {detail}"))
         },

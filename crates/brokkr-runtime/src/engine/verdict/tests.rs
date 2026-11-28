@@ -22,7 +22,7 @@ const ATTEMPT: &str = "attempt-unknown-yet";
 /// A driver that answers one attempt of any effect with `result`, which
 /// must hold no `'`: its messages are the protocol's own, written with
 /// placeholder ids the script replaces with the pair its start names.
-pub(super) fn driver(result: &Value) -> Vec<String> {
+pub(in crate::engine) fn driver(result: &Value) -> Vec<String> {
     checkpointing(&[], result)
 }
 

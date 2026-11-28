@@ -567,6 +567,6 @@ mod span_tests;
 #[cfg(test)]
 mod stop_tests;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 #[cfg(test)]
 mod word_tests;

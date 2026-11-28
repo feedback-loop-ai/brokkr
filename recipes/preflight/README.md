@@ -9,8 +9,8 @@ That is a property of the table, not of a sandbox. Both seats run on
 your machine with your credentials, and their charters tell them to
 touch nothing. The review seat is unboxed claude under
 `--permission-mode acceptEdits`, so nothing stops it editing a file. The
-engine checks one thing itself: a gate that moves `HEAD` parks the run
-(`GATE-MOVED-HEAD`), and an edit left uncommitted passes that check. If
+engine parks a gate that moves `HEAD` (`GATE-MOVED-HEAD`) or leaves changes
+to tracked files when HEAD reads at both ends (`GATE-CHANGED-TREE`). If
 you want the assurance rather than the promise, the check is one line:
 `git status --short` and `git log --oneline main..HEAD` should read the
 same after the run as before it.

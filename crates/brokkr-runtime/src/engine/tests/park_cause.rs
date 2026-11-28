@@ -7,7 +7,7 @@
 //! `run/parked` writer takes a `Park`, and a raw `run/parked` is refused.
 
 use super::*;
-use brokkr_core::gate_moved_head::MovedHead;
+use brokkr_core::gate_moved_head::{self, MovedHead};
 
 #[test]
 fn compiled_design_upstream_reenters_specify_then_exhausts() {

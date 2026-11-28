@@ -480,6 +480,7 @@ pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorC
 pub const fn brokkr_core::fold::OperatorCommand::as_str(self) -> &'static str
 pub fn brokkr_core::fold::OperatorCommand::parse(&str) -> core::option::Option<brokkr_core::fold::OperatorCommand>
 pub enum brokkr_core::fold::ParkReason
+pub brokkr_core::fold::ParkReason::GateChangedTree
 pub brokkr_core::fold::ParkReason::GateMovedHead
 pub brokkr_core::fold::ParkReason::Stated(alloc::string::String)
 impl brokkr_core::fold::ParkReason
@@ -596,8 +597,11 @@ pub struct brokkr_core::gate_moved_head::MovedHead
 pub brokkr_core::gate_moved_head::MovedHead::head_at_end: core::option::Option<alloc::string::String>
 pub brokkr_core::gate_moved_head::MovedHead::head_at_start: core::option::Option<alloc::string::String>
 pub const brokkr_core::gate_moved_head::PREFIX: &str
+pub const brokkr_core::gate_moved_head::TREE_PREFIX: &str
 pub fn brokkr_core::gate_moved_head::decode<T: serde_core::de::DeserializeOwned>(&str) -> core::option::Option<core::result::Result<T, serde_json::error::Error>>
+pub fn brokkr_core::gate_moved_head::decode_tree<T: serde_core::de::DeserializeOwned>(&str) -> core::option::Option<core::result::Result<T, serde_json::error::Error>>
 pub fn brokkr_core::gate_moved_head::encode(&brokkr_core::gate_moved_head::MovedHead) -> alloc::string::String
+pub fn brokkr_core::gate_moved_head::encode_tree(&impl serde_core::ser::Serialize) -> alloc::string::String
 pub mod brokkr_core::keep_refs
 pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub mod brokkr_core::page
