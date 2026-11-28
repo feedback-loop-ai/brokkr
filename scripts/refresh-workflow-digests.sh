@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Refresh or verify .github/workflow-digests.txt from the files under
-# .github/actions/ and .github/workflows/ (issue #1417, operator ruling
-# 2026-11-27).
+# Refresh or verify .github/workflow-digests.txt from every file under
+# .github/actions/ and .github/workflows/, plus .github/renovate.json5 and
+# .github/renovate-global.json5 (issue #1417, operator ruling 2026-11-27).
 #
-# Every file under those two directories is hashed by SHA-256 over its checked-out
+# Every pinned file is hashed by SHA-256 over its checked-out
 # bytes and written in `sha256sum` format (`<64 lowercase hex>  <path>`), sorted
 # by path in byte order, with no blank lines, no comments, and a final newline.
 # Every path component under either directory must be one or more ASCII letters,
@@ -62,7 +62,7 @@ sha256_file() {
 }
 
 escape_path() {
-  printf '%s' "$1" | od -An -tx1 | awk '
+  printf '%s' "$1" | od -v -An -tx1 | awk '
     BEGIN {
       split("2d 2e 2f 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57 58 59 5a 5f 61 62 63 64 65 66 67 68 69 6a 6b 6c 6d 6e 6f 70 71 72 73 74 75 76 77 78 79 7a", hx, " ")
       chars = "-./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"
@@ -97,6 +97,13 @@ fi
 for dir in .github/actions .github/workflows; do
   [ ! -L "$dir" ] || fail "refusing symbolic link: $dir"
   [ -d "$dir" ] || fail "missing directory: $dir"
+done
+
+pinned_files=(.github/renovate-global.json5 .github/renovate.json5)
+for pinned in "${pinned_files[@]}"; do
+  [ ! -L "$pinned" ] || fail "refusing symbolic link: $pinned"
+  [ -e "$pinned" ] || fail "missing pinned file: $pinned"
+  [ -f "$pinned" ] || fail "refusing non-regular entry: $pinned"
 done
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/refresh-workflow-digests.XXXXXX")"
@@ -164,6 +171,10 @@ if [ -s "$scratch/non_regular" ]; then
   first="$(LC_ALL=C sort "$scratch/non_regular" | head -n 1)"
   fail "refusing non-regular entry: $first"
 fi
+
+for pinned in "${pinned_files[@]}"; do
+  printf '%s\n' "$pinned" >> "$scratch/raw_paths"
+done
 
 LC_ALL=C sort "$scratch/raw_paths" > "$scratch/paths"
 

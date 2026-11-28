@@ -3,8 +3,9 @@
 //! refuses is bound by a test:
 //!
 //! - `refresh-workflow-digests.sh` (#1417): rewrites or checks
-//!   `.github/workflow-digests.txt` over `.github/actions/` and
-//!   `.github/workflows/`, agrees with `workflow_digests::check_workflow_digests`
+//!   `.github/workflow-digests.txt` over `.github/actions/`,
+//!   `.github/workflows/`, `.github/renovate.json5`, and
+//!   `.github/renovate-global.json5`, agrees with `workflow_digests::check_workflow_digests`
 //!   including nested action directories, refuses invalid path names, symlinks,
 //!   and non-regular digest targets (including FIFOs without blocking), writes
 //!   atomically via a same-directory temp file, supports `shasum -a 256`
@@ -1139,9 +1140,17 @@ fn stub_hasher_from_sha2(is_shasum: bool, entries: &[(&str, &str)]) -> String {
     script
 }
 
-/// Run a workspace script under a wall-clock deadline so a blocked FIFO fails
-/// fast instead of hanging the suite.
-fn run_script_with_timeout(
+const SAMPLE_RENOVATE_GLOBAL: &str = "{ allowedCommands: [] }\n";
+const SAMPLE_RENOVATE: &str = "{}\n";
+
+fn plant_renovate_configs(repo: &Repo) {
+    repo.put(".github/renovate-global.json5", SAMPLE_RENOVATE_GLOBAL);
+    repo.put(".github/renovate.json5", SAMPLE_RENOVATE);
+}
+
+/// Run a workspace script hermetically (`stub-bin:sys-bin`) under a wall-clock
+/// deadline so a blocked FIFO fails fast instead of hanging the suite.
+fn run_script_hermetic_with_timeout(
     repo: &Repo,
     script: &str,
     args: &[&str],
@@ -1150,7 +1159,7 @@ fn run_script_with_timeout(
     let path = format!(
         "{}:{}",
         repo.path().join("stub-bin").display(),
-        std::env::var("PATH").expect("PATH")
+        repo.path().join("sys-bin").display()
     );
     let mut child = Command::new("bash")
         .arg(workspace().join(script))
@@ -1178,6 +1187,7 @@ fn run_script_with_timeout(
 #[test]
 fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers() {
     let repo = Repo::new();
+    link_digest_script_tools(&repo);
     let wf = "name: ci\non: push\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: ./.github/actions/outer/inner\n";
     let action =
         "name: inner\nruns:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
@@ -1185,72 +1195,9 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
     repo.put(".github/workflows/ci.yml", wf);
     repo.put(".github/actions/outer/inner/action.yml", action);
     repo.put(".github/actions/outer/helper.sh", helper);
+    plant_renovate_configs(&repo);
 
-    // --check before digest file exists fails and writes nothing.
-    let missing = repo.run("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
-    assert!(!missing.status.success());
-    assert!(!repo
-        .path()
-        .join(crate::workflow_digests::DIGEST_FILE)
-        .exists());
-
-    // Refresh writes the digest file and the Rust guard passes on the nested tree.
-    let write = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(write.status.success(), "{}", stderr(&write));
-    assert_eq!(
-        crate::workflow_digests::check_workflow_digests(repo.path()),
-        Vec::new()
-    );
-    let recorded = repo.read(crate::workflow_digests::DIGEST_FILE);
-    let expected = format!(
-        "{}  .github/actions/outer/helper.sh\n{}  .github/actions/outer/inner/action.yml\n{}  .github/workflows/ci.yml\n",
-        sha256_hex(helper),
-        sha256_hex(action),
-        sha256_hex(wf),
-    );
-    assert_eq!(recorded, expected);
-
-    // --check succeeds when up to date, and rewriting unchanged tree changes nothing.
-    let check_ok = repo.run("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
-    assert!(check_ok.status.success(), "{}", stderr(&check_ok));
-    let rewrite = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(rewrite.status.success(), "{}", stderr(&rewrite));
-    assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
-
-    // After a workflow edit, --check exits non-zero and writes nothing.
-    let edited = format!("{wf}# changed\n");
-    repo.put(".github/workflows/ci.yml", &edited);
-    let check_stale = repo.run("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
-    assert!(!check_stale.status.success());
-    assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
-
-    // Refresh updates it and guard passes again.
-    let refresh_again = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(refresh_again.status.success(), "{}", stderr(&refresh_again));
-    assert_eq!(
-        crate::workflow_digests::check_workflow_digests(repo.path()),
-        Vec::new()
-    );
-
-    // Symlink under either directory is refused.
-    repo.put("outside.yml", "name: x\n");
-    std::os::unix::fs::symlink(
-        repo.path().join("outside.yml"),
-        repo.path().join(".github/actions/link.yml"),
-    )
-    .expect("symlink");
-    let sym = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
-    assert!(!sym.status.success());
-    assert!(
-        stderr(&sym).contains("refusing non-regular entry"),
-        "{}",
-        stderr(&sym)
-    );
-    std::fs::remove_file(repo.path().join(".github/actions/link.yml")).expect("rm symlink");
-
-    // Hermetic hasher checks: fails closed with neither sha256sum nor shasum,
-    // and succeeds with a `shasum -a 256` fallback when `sha256sum` is absent.
-    link_digest_script_tools(&repo);
+    // Fails closed when neither sha256sum nor shasum is on PATH.
     let neither = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
     assert!(!neither.status.success());
     assert!(
@@ -1259,14 +1206,83 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
         stderr(&neither)
     );
 
-    let stub_entries = [
+    // Every subsequent run uses only the test's own PATH (stub hasher + linked POSIX tools).
+    let initial_entries = [
         (".github/actions/outer/helper.sh", helper),
         (".github/actions/outer/inner/action.yml", action),
-        (".github/workflows/ci.yml", edited.as_str()),
+        (".github/renovate-global.json5", SAMPLE_RENOVATE_GLOBAL),
+        (".github/renovate.json5", SAMPLE_RENOVATE),
+        (".github/workflows/ci.yml", wf),
     ];
     repo.executable(
+        "stub-bin/sha256sum",
+        &stub_hasher_from_sha2(false, &initial_entries),
+    );
+
+    // --check before digest file exists fails and writes nothing.
+    let missing = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(!missing.status.success());
+    assert!(!repo
+        .path()
+        .join(crate::workflow_digests::DIGEST_FILE)
+        .exists());
+
+    // Refresh writes the digest file and the Rust guard passes on the nested tree.
+    let write = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(write.status.success(), "{}", stderr(&write));
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
+    );
+    let recorded = repo.read(crate::workflow_digests::DIGEST_FILE);
+    let expected = format!(
+        "{}  .github/actions/outer/helper.sh\n{}  .github/actions/outer/inner/action.yml\n{}  .github/renovate-global.json5\n{}  .github/renovate.json5\n{}  .github/workflows/ci.yml\n",
+        sha256_hex(helper),
+        sha256_hex(action),
+        sha256_hex(SAMPLE_RENOVATE_GLOBAL),
+        sha256_hex(SAMPLE_RENOVATE),
+        sha256_hex(wf),
+    );
+    assert_eq!(recorded, expected);
+
+    // --check succeeds when up to date, and rewriting unchanged tree changes nothing.
+    let check_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(check_ok.status.success(), "{}", stderr(&check_ok));
+    let rewrite = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(rewrite.status.success(), "{}", stderr(&rewrite));
+    assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
+
+    // After a workflow edit, --check exits non-zero and writes nothing.
+    let edited = format!("{wf}# changed\n");
+    let edited_entries = [
+        (".github/actions/outer/helper.sh", helper),
+        (".github/actions/outer/inner/action.yml", action),
+        (".github/renovate-global.json5", SAMPLE_RENOVATE_GLOBAL),
+        (".github/renovate.json5", SAMPLE_RENOVATE),
+        (".github/workflows/ci.yml", edited.as_str()),
+    ];
+    repo.put(".github/workflows/ci.yml", &edited);
+    repo.executable(
+        "stub-bin/sha256sum",
+        &stub_hasher_from_sha2(false, &edited_entries),
+    );
+    let check_stale = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(!check_stale.status.success());
+    assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
+
+    // Refresh updates it and guard passes again.
+    let refresh_again = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(refresh_again.status.success(), "{}", stderr(&refresh_again));
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
+    );
+
+    // Succeeds with a `shasum -a 256` fallback when `sha256sum` is absent.
+    std::fs::remove_file(repo.path().join("stub-bin/sha256sum")).expect("rm sha256sum stub");
+    repo.executable(
         "stub-bin/shasum",
-        &stub_hasher_from_sha2(true, &stub_entries),
+        &stub_hasher_from_sha2(true, &edited_entries),
     );
     let shasum_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
     assert!(shasum_ok.status.success(), "{}", stderr(&shasum_ok));
@@ -1277,26 +1293,70 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
         crate::workflow_digests::check_workflow_digests(repo.path()),
         Vec::new()
     );
+}
 
-    std::fs::remove_file(repo.path().join("stub-bin/shasum")).expect("rm shasum stub");
-    repo.executable(
-        "stub-bin/sha256sum",
-        &stub_hasher_from_sha2(false, &stub_entries),
+#[test]
+fn refresh_workflow_digests_refuses_symlinks_and_missing_renovate_files() {
+    let repo = Repo::new();
+    link_digest_script_tools(&repo);
+    repo.put(".github/workflows/ci.yml", "name: ci\n");
+    std::fs::create_dir_all(repo.path().join(".github/actions")).expect("actions dir");
+    plant_renovate_configs(&repo);
+    repo.executable("stub-bin/sha256sum", "#!/usr/bin/env bash\nexit 99\n");
+
+    repo.put("outside.yml", "name: x\n");
+    std::os::unix::fs::symlink(
+        repo.path().join("outside.yml"),
+        repo.path().join(".github/actions/link.yml"),
+    )
+    .expect("symlink");
+    let sym = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(!sym.status.success());
+    assert!(
+        stderr(&sym).contains("refusing non-regular entry"),
+        "{}",
+        stderr(&sym)
     );
-    let sha256sum_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
-    assert!(sha256sum_ok.status.success(), "{}", stderr(&sha256sum_ok));
+    std::fs::remove_file(repo.path().join(".github/actions/link.yml")).expect("rm symlink");
+
+    std::fs::remove_file(repo.path().join(".github/renovate.json5")).expect("rm renovate");
+    let missing = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(!missing.status.success());
+    assert!(
+        stderr(&missing).contains("missing pinned file: .github/renovate.json5"),
+        "{}",
+        stderr(&missing)
+    );
+
+    std::os::unix::fs::symlink(
+        repo.path().join("outside.yml"),
+        repo.path().join(".github/renovate.json5"),
+    )
+    .expect("symlink renovate");
+    let sym_ren = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(!sym_ren.status.success());
+    assert!(
+        stderr(&sym_ren).contains("refusing symbolic link: .github/renovate.json5"),
+        "{}",
+        stderr(&sym_ren)
+    );
 }
 
 #[test]
 fn refresh_workflow_digests_refuses_invalid_path_names_and_writes_nothing() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-
     let wf = "name: ci\non: push\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n";
-
+    let new_repo = || {
+        let repo = Repo::new();
+        link_digest_script_tools(&repo);
+        repo.put(".github/workflows/ci.yml", wf);
+        std::fs::create_dir_all(repo.path().join(".github/actions")).expect("actions dir");
+        plant_renovate_configs(&repo);
+        repo.executable("stub-bin/sha256sum", "#!/usr/bin/env bash\nexit 99\n");
+        repo
+    };
     let assert_refused = |repo: &Repo, expected_escaped: &[&str], sentinel: Option<&str>| {
         for args in [&[][..], &["--check"][..]] {
-            let out = repo.run("scripts/refresh-workflow-digests.sh", args, &[]);
+            let out = repo.run_hermetic("scripts/refresh-workflow-digests.sh", args, &[]);
             assert!(
                 !out.status.success(),
                 "args={args:?} must fail; stderr={}",
@@ -1317,14 +1377,11 @@ fn refresh_workflow_digests_refuses_invalid_path_names_and_writes_nothing() {
         }
     };
 
-    // 1. Name with a space.
-    let space_repo = Repo::new();
-    space_repo.put(".github/workflows/ci.yml", wf);
+    let space_repo = new_repo();
     space_repo.put(".github/actions/bad name.yml", "name: bad\n");
     assert_refused(&space_repo, &[r".github/actions/bad\x20name.yml"], None);
 
-    // 2. Name with a non-ASCII letter.
-    let non_ascii_repo = Repo::new();
+    let non_ascii_repo = new_repo();
     non_ascii_repo.put(".github/actions/ok/action.yml", "name: ok\n");
     non_ascii_repo.put(".github/workflows/caf\u{00e9}.yml", wf);
     assert_refused(
@@ -1333,69 +1390,85 @@ fn refresh_workflow_digests_refuses_invalid_path_names_and_writes_nothing() {
         None,
     );
 
-    // 3. Lone non-UTF-8 filename (gracefully passes if host FS refuses creation, e.g. macOS APFS).
-    let raw_repo = Repo::new();
-    raw_repo.put(".github/workflows/ci.yml", wf);
-    std::fs::create_dir_all(raw_repo.path().join(".github/actions")).expect("actions dir");
-    let lone_path = raw_repo
-        .path()
-        .join(".github/actions")
-        .join(OsStr::from_bytes(b"bad-\xff.txt"));
-    match std::fs::write(&lone_path, "raw\n") {
-        Ok(()) => assert_refused(&raw_repo, &[r".github/actions/bad-\xff.txt"], None),
-        Err(err) => {
-            assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
-            eprintln!("host filesystem refused non-UTF-8 filename: {err}");
-        }
+    // 48 identical bytes plus one invalid byte: `od -v` must preserve every byte.
+    let repeat_repo = new_repo();
+    let repeated_prefix = "a".repeat(48);
+    repeat_repo.put(
+        &format!(".github/actions/{repeated_prefix} "),
+        "name: repeat\n",
+    );
+    let expected_repeated = format!(r".github/actions/{repeated_prefix}\x20");
+    assert_refused(&repeat_repo, &[&expected_repeated], None);
+
+    // Non-UTF-8 filenames (skip only on host FS EILSEQ, e.g. macOS APFS).
+    let raw_repo = new_repo();
+    if crate::workflow_digests::plant_raw_name_file(
+        &raw_repo.path().join(".github/actions"),
+        b"bad-\xff.txt",
+        "raw\n",
+    ) {
+        assert_refused(&raw_repo, &[r".github/actions/bad-\xff.txt"], None);
     }
 
-    // 4. Non-UTF-8 filename beside a recorded U+FFFD twin: exits non-zero and leaves digest file intact.
-    let twin_repo = Repo::new();
-    twin_repo.put(".github/workflows/ci.yml", wf);
+    let twin_repo = new_repo();
     twin_repo.put(".github/actions/helper-\u{FFFD}.txt", "twin\n");
     let sentinel = "sentinel-unchanged\n";
     twin_repo.put(crate::workflow_digests::DIGEST_FILE, sentinel);
-    let sibling_path = twin_repo
-        .path()
-        .join(".github/actions")
-        .join(OsStr::from_bytes(b"helper-\xff.txt"));
-    match std::fs::write(&sibling_path, "sibling\n") {
-        Ok(()) => assert_refused(
+    if crate::workflow_digests::plant_raw_name_file(
+        &twin_repo.path().join(".github/actions"),
+        b"helper-\xff.txt",
+        "sibling\n",
+    ) {
+        assert_refused(
             &twin_repo,
             &[
                 r".github/actions/helper-\xef\xbf\xbd.txt",
                 r".github/actions/helper-\xff.txt",
             ],
             Some(sentinel),
-        ),
-        Err(err) => {
-            assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
-            eprintln!("host filesystem refused non-UTF-8 filename: {err}");
-        }
+        );
     }
 }
 
 #[test]
 fn refresh_workflow_digests_refuses_fifo_target_under_timeout_and_writes_atomically() {
+    use std::io::Read as _;
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
     let repo = Repo::new();
+    link_digest_script_tools(&repo);
     let wf = "name: ci\non: push\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n";
     repo.put(".github/workflows/ci.yml", wf);
     std::fs::create_dir_all(repo.path().join(".github/actions")).expect("actions dir");
+    plant_renovate_configs(&repo);
+    let initial_entries = [
+        (".github/renovate-global.json5", SAMPLE_RENOVATE_GLOBAL),
+        (".github/renovate.json5", SAMPLE_RENOVATE),
+        (".github/workflows/ci.yml", wf),
+    ];
+    repo.executable(
+        "stub-bin/sha256sum",
+        &stub_hasher_from_sha2(false, &initial_entries),
+    );
 
     let target = repo.path().join(crate::workflow_digests::DIGEST_FILE);
-    let made = Command::new("mkfifo").arg(&target).status();
     assert!(
-        made.is_ok_and(|s| s.success()),
+        Command::new("mkfifo")
+            .arg(&target)
+            .status()
+            .is_ok_and(|s| s.success()),
         "mkfifo {}",
         target.display()
     );
 
     let limit = std::time::Duration::from_secs(5);
     for args in [&[][..], &["--check"][..]] {
-        let out =
-            run_script_with_timeout(&repo, "scripts/refresh-workflow-digests.sh", args, limit);
+        let out = run_script_hermetic_with_timeout(
+            &repo,
+            "scripts/refresh-workflow-digests.sh",
+            args,
+            limit,
+        );
         assert!(
             !out.status.success(),
             "FIFO target must be refused for args={args:?}"
@@ -1414,9 +1487,8 @@ fn refresh_workflow_digests_refuses_fifo_target_under_timeout_and_writes_atomica
         );
     }
 
-    // Remove FIFO; write mode writes via same-dir temp file and leaves no stray temp files.
     std::fs::remove_file(&target).expect("rm fifo");
-    let written = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    let written = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
     assert!(written.status.success(), "{}", stderr(&written));
     let stray: Vec<_> = std::fs::read_dir(repo.path().join(".github"))
         .expect("read .github")
@@ -1425,14 +1497,44 @@ fn refresh_workflow_digests_refuses_fifo_target_under_timeout_and_writes_atomica
         .collect();
     assert_eq!(stray, Vec::<String>::new());
 
-    // Re-running on an unchanged tree rewrites nothing (preserves inode) and exits 0.
+    // Unchanged tree rewrites nothing (preserves inode).
     let before_ino = std::fs::metadata(&target).expect("meta before").ino();
-    let noop = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    let noop = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
     assert!(noop.status.success(), "{}", stderr(&noop));
-    let after_ino = std::fs::metadata(&target).expect("meta after").ino();
     assert_eq!(
-        before_ino, after_ino,
-        "unchanged tree must not rewrite digest file"
+        before_ino,
+        std::fs::metadata(&target).expect("meta after").ino()
+    );
+
+    // Changed content atomically renames a new inode; open fd still reads old content whole.
+    let old_content = repo.read(crate::workflow_digests::DIGEST_FILE);
+    let mut old_fd = std::fs::File::open(&target).expect("open old digest file");
+    let edited_wf = format!("{wf}# updated\n");
+    repo.put(".github/workflows/ci.yml", &edited_wf);
+    let updated_entries = [
+        (".github/renovate-global.json5", SAMPLE_RENOVATE_GLOBAL),
+        (".github/renovate.json5", SAMPLE_RENOVATE),
+        (".github/workflows/ci.yml", edited_wf.as_str()),
+    ];
+    repo.executable(
+        "stub-bin/sha256sum",
+        &stub_hasher_from_sha2(false, &updated_entries),
+    );
+    let updated = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(updated.status.success(), "{}", stderr(&updated));
+    assert_ne!(
+        before_ino,
+        std::fs::metadata(&target).expect("meta updated").ino()
+    );
+    let mut from_old_fd = String::new();
+    old_fd
+        .read_to_string(&mut from_old_fd)
+        .expect("read old fd");
+    assert_eq!(from_old_fd, old_content);
+    assert_ne!(repo.read(crate::workflow_digests::DIGEST_FILE), old_content);
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
     );
 }
 
@@ -1441,6 +1543,8 @@ fn docs_lane_keeps_workflow_action_and_digest_changes_on_the_full_lane() {
     for (path, body) in [
         (".github/workflows/ci.yml", "name: ci\n"),
         (".github/actions/local/action.yml", "name: local\n"),
+        (".github/renovate.json5", "{}\n"),
+        (".github/renovate-global.json5", "{}\n"),
         (
             ".github/workflow-digests.txt",
             "00  .github/workflows/ci.yml\n",

@@ -899,7 +899,6 @@ fn parse_trigger_filter_values(
     }
     let place = format!("on.{event_name}.{key}");
     match node {
-        Yaml::String(s) => Ok(vec![s.clone()]),
         Yaml::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {

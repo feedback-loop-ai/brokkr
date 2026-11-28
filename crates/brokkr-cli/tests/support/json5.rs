@@ -1,12 +1,15 @@
-//! Strict minimal JSON5 reader for Renovate configuration guards (#1417,
+//! Strict closed-form JSON5 reader for Renovate configuration guards (#1417,
 //! decision 0071 rulings 3 and 8).
 //!
-//! Reads the JSON5 subset used by `.github/renovate.json5` and
-//! `.github/renovate-global.json5`: objects (with unquoted identifier keys or
-//! quoted keys, trailing commas, and duplicate-key rejection), arrays (with
-//! trailing commas), single- and double-quoted strings with standard escapes,
-//! booleans (`true`/`false`), and `//` line comments. Any token or syntax
-//! outside this subset is refused with a typed [`Json5Error`].
+//! Reads only the narrow ASCII subset used by `.github/renovate.json5` and
+//! `.github/renovate-global.json5`: printable ASCII (`0x20..=0x7e`) and LF
+//! (`0x0a`) only (never CR, tabs, other control bytes, or non-ASCII), objects
+//! (with unquoted ASCII identifier keys or quoted keys, trailing commas, and
+//! duplicate-key rejection), arrays (with trailing commas), single- and
+//! double-quoted strings with `\\` as the only escape sequence, booleans
+//! (`true`/`false`), and `//` line comments terminated by LF or EOF. Any byte
+//! or construct outside this subset is refused with a typed [`Json5Error`]
+//! naming the byte offset, so it reads less than JSON5 and never differently.
 
 use std::collections::BTreeMap;
 
@@ -49,6 +52,10 @@ impl Json5Value {
 /// Typed refusal returned by [`parse_json5`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum Json5Error {
+    #[error("offset {offset}: carriage return is not allowed")]
+    CarriageReturn { offset: usize },
+    #[error("offset {offset}: byte 0x{byte:02x} outside printable ASCII and LF")]
+    DisallowedByte { offset: usize, byte: u8 },
     #[error("offset {offset}: unexpected end of input")]
     UnexpectedEof { offset: usize },
     #[error("offset {offset}: unexpected character `{found}`")]
@@ -73,6 +80,14 @@ pub(crate) enum Json5Error {
 
 /// Parse one JSON5 document strictly, refusing unknown syntax and trailing tokens.
 pub(crate) fn parse_json5(input: &str) -> Result<Json5Value, Json5Error> {
+    for (offset, &byte) in input.as_bytes().iter().enumerate() {
+        if byte == b'\r' {
+            return Err(Json5Error::CarriageReturn { offset });
+        }
+        if byte != b'\n' && !(0x20..=0x7e).contains(&byte) {
+            return Err(Json5Error::DisallowedByte { offset, byte });
+        }
+    }
     let mut parser = Parser {
         bytes: input.as_bytes(),
         src: input,
@@ -108,8 +123,8 @@ impl<'a> Parser<'a> {
 
     fn skip_ws_and_comments(&mut self) -> Result<(), Json5Error> {
         loop {
-            while let Some(b) = self.bytes.get(self.pos) {
-                if matches!(b, b' ' | b'\t' | b'\n' | b'\r') {
+            while let Some(&b) = self.bytes.get(self.pos) {
+                if matches!(b, b' ' | b'\n') {
                     self.pos += 1;
                 } else {
                     break;
@@ -274,25 +289,18 @@ impl<'a> Parser<'a> {
             if ch == quote {
                 return Ok(out);
             }
-            if matches!(ch, '\n' | '\r') {
+            if ch == '\n' {
                 return Err(Json5Error::UnescapedNewline { offset });
             }
             if ch == '\\' {
-                let esc_offset = self.pos;
                 let esc = self.next_char()?;
-                match esc {
-                    '\\' => out.push('\\'),
-                    '\'' => out.push('\''),
-                    '"' => out.push('"'),
-                    'n' => out.push('\n'),
-                    'r' => out.push('\r'),
-                    't' => out.push('\t'),
-                    other => {
-                        return Err(Json5Error::UnsupportedEscape {
-                            offset: esc_offset,
-                            escape: other,
-                        });
-                    }
+                if esc == '\\' {
+                    out.push('\\');
+                } else {
+                    return Err(Json5Error::UnsupportedEscape {
+                        offset,
+                        escape: esc,
+                    });
                 }
             } else {
                 out.push(ch);
@@ -353,21 +361,107 @@ mod tests {
     }
 
     #[test]
-    fn json5_refuses_unknown_syntax_duplicate_keys_and_trailing_garbage() {
+    fn json5_refuses_carriage_return_anywhere() {
+        let comment_cr = "{ allowedCommands: [\n// hide\r'evil',\n] }";
+        let cr_offset = comment_cr.find('\r').expect("cr");
         assert_eq!(
-            parse_json5("{ a: true, a: false }"),
-            Err(Json5Error::DuplicateKey {
-                offset: 11,
-                key: "a".to_string(),
+            parse_json5(comment_cr),
+            Err(Json5Error::CarriageReturn { offset: cr_offset })
+        );
+        assert_eq!(
+            parse_json5("{\r\n a: true\r\n}"),
+            Err(Json5Error::CarriageReturn { offset: 1 })
+        );
+        assert_eq!(
+            parse_json5("{ a: 'x\ry' }"),
+            Err(Json5Error::CarriageReturn { offset: 7 })
+        );
+    }
+
+    #[test]
+    fn json5_refuses_bytes_outside_printable_ascii_and_lf() {
+        for (input, offset, byte) in [
+            ("{\ta: true}", 1, b'\t'),
+            ("{ a: '\0' }", 6, 0x00),
+            ("{ a: '\x7f' }", 6, 0x7f),
+            ("// ls\u{2028}'evil'\n{}", 5, 0xe2),
+            ("{ a: 'hello\u{00e9}' }", 11, 0xc3),
+            ("\u{feff}{}", 0, 0xef),
+        ] {
+            assert_eq!(
+                parse_json5(input),
+                Err(Json5Error::DisallowedByte { offset, byte }),
+                "input={input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn json5_refuses_unsupported_backslash_escapes_in_string() {
+        for (input, offset, escape) in [
+            ("{ a: '\\u0041' }", 6, 'u'),
+            ("{ a: '\\n' }", 6, 'n'),
+            ("{ a: '\\r' }", 6, 'r'),
+            ("{ a: '\\t' }", 6, 't'),
+            ("{ a: '\\'' }", 6, '\''),
+            ("{ a: '\\\"' }", 6, '"'),
+            ("{ a: '\\\n' }", 6, '\n'),
+        ] {
+            assert_eq!(
+                parse_json5(input),
+                Err(Json5Error::UnsupportedEscape { offset, escape }),
+                "input={input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn json5_refuses_block_comments() {
+        assert_eq!(
+            parse_json5("/* block */ {}"),
+            Err(Json5Error::UnsupportedToken {
+                offset: 0,
+                token: "/*".to_string(),
             })
         );
         assert_eq!(
-            parse_json5("{ a: 42 }"),
-            Err(Json5Error::UnexpectedChar {
-                offset: 5,
-                found: '4',
+            parse_json5("{ /* inner */ a: true }"),
+            Err(Json5Error::UnsupportedToken {
+                offset: 2,
+                token: "/*".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn json5_refuses_number_forms() {
+        for (input, found) in [
+            ("{ a: 42 }", '4'),
+            ("{ a: -1 }", '-'),
+            ("{ a: +1 }", '+'),
+            ("{ a: .5 }", '.'),
+            ("{ a: 0x10 }", '0'),
+        ] {
+            assert_eq!(
+                parse_json5(input),
+                Err(Json5Error::UnexpectedChar { offset: 5, found }),
+                "input={input:?}"
+            );
+        }
+        for (input, token) in [("{ a: Infinity }", "Infinity"), ("{ a: NaN }", "NaN")] {
+            assert_eq!(
+                parse_json5(input),
+                Err(Json5Error::UnsupportedToken {
+                    offset: 5,
+                    token: token.to_string(),
+                }),
+                "input={input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn json5_refuses_null_and_unknown_identifiers() {
         assert_eq!(
             parse_json5("{ a: null }"),
             Err(Json5Error::UnsupportedToken {
@@ -376,21 +470,65 @@ mod tests {
             })
         );
         assert_eq!(
-            parse_json5("{ a: '\\u0041' }"),
-            Err(Json5Error::UnsupportedEscape {
-                offset: 7,
-                escape: 'u',
+            parse_json5("{ a: undefined }"),
+            Err(Json5Error::UnsupportedToken {
+                offset: 5,
+                token: "undefined".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn json5_refuses_duplicate_object_keys() {
+        assert_eq!(
+            parse_json5("{ a: true, a: false }"),
+            Err(Json5Error::DuplicateKey {
+                offset: 11,
+                key: "a".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn json5_refuses_unescaped_newline_in_string() {
+        assert_eq!(
+            parse_json5("{ a: 'line1\nline2' }"),
+            Err(Json5Error::UnescapedNewline { offset: 11 })
+        );
+    }
+
+    #[test]
+    fn json5_refuses_trailing_content_after_root() {
         assert_eq!(
             parse_json5("{ a: true } extra"),
             Err(Json5Error::TrailingContent { offset: 12 })
         );
+    }
+
+    #[test]
+    fn json5_refuses_unexpected_eof_and_bad_delimiters() {
         assert_eq!(
-            parse_json5("/* block */ {}"),
-            Err(Json5Error::UnsupportedToken {
-                offset: 0,
-                token: "/*".to_string(),
+            parse_json5(""),
+            Err(Json5Error::UnexpectedEof { offset: 0 })
+        );
+        assert_eq!(
+            parse_json5("{ a: 'unterminated"),
+            Err(Json5Error::UnexpectedEof { offset: 18 })
+        );
+        assert_eq!(
+            parse_json5("{ a: true b: false }"),
+            Err(Json5Error::ExpectedChar {
+                offset: 10,
+                expected: '}',
+                found: 'b',
+            })
+        );
+        assert_eq!(
+            parse_json5("[true false]"),
+            Err(Json5Error::ExpectedChar {
+                offset: 6,
+                expected: ']',
+                found: 'f',
             })
         );
     }

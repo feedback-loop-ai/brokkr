@@ -4,6 +4,8 @@
 28b3c2b90bad23c607396d9883f13e6b828c257778e9b7c849a643c19dc0a239  .github/actions/setup-cargo-audit/action.yml
 27c0e168e6bc7f364f2d570dd428254ab8dcd64698ce8160fb0d978d06fbc162  .github/actions/setup-jscpd/action.yml
 9e4d3ce0b1f7e9f07edca75174c70e5b3db8324c61124e4d1102026be0fd09d4  .github/actions/setup-lychee/action.yml
+4f06285bc9349446c09cced922710479338e53deae0406f2d85e4a2f10a31f0c  .github/renovate-global.json5
+7d83ebd0b289e5801b8ffb2f7ed31aa1af084f5c3d0253c0accffb61f7ef32ad  .github/renovate.json5
 dc0cd080dcbf8663c32ce8a5444a241e033693baf193eb6b1094c41e2b4e401d  .github/workflows/ci.yml
 89d904819201b25e35e48f873df292c3733c77c6e5c1f793f5b2018318572cb5  .github/workflows/cpu-budgets.yml
 992e517117cd2d36e3b5aeb21aa7e4d16d8c73e0e87a57b30966ce4eec56bff2  .github/workflows/links-weekly.yml
