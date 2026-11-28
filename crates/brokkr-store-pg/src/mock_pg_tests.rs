@@ -78,8 +78,6 @@ pub(crate) struct MockDb {
     pub(crate) runs_jsonb: BTreeMap<String, Option<String>>,
     pub(crate) events: BTreeMap<(String, i64), EventDbRow>,
     pub(crate) events_jsonb: BTreeMap<(String, i64), Option<String>>,
-    pub(crate) proj_run_next_order: i64,
-    pub(crate) proj_run_orders: BTreeMap<String, i64>,
     pub(crate) proj_runs: BTreeMap<String, (String, String, String, i64, String)>,
     pub(crate) proj_events: BTreeMap<(String, i64), ProjEventRow>,
     pub(crate) proj_events_jsonb: BTreeMap<(String, i64), Option<String>>,
@@ -301,14 +299,14 @@ fn exec_sql(
     }
     if norm.starts_with("CREATE INDEX") {
         if norm.contains("brokkr_projected_runs")
-            && norm.contains("list_order")
+            && norm.contains("created_at")
             && db
                 .omit_columns
-                .contains(&("brokkr_projected_runs".into(), "list_order".into()))
+                .contains(&("brokkr_projected_runs".into(), "created_at".into()))
         {
             return Err((
                 "42703".into(),
-                "column \"list_order\" does not exist".into(),
+                "column \"created_at\" does not exist".into(),
             ));
         }
         return Ok((vec![], "CREATE INDEX".into()));
@@ -597,14 +595,8 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
         return Ok((vec![], "INSERT 0 1".into()));
     }
     if norm.starts_with("INSERT INTO brokkr_projected_runs") {
-        let run_id = pstr(params, 0).to_string();
-        if !db.proj_run_orders.contains_key(&run_id) {
-            db.proj_run_next_order += 1;
-            let order = db.proj_run_next_order;
-            db.proj_run_orders.insert(run_id.clone(), order);
-        }
         db.proj_runs.insert(
-            run_id,
+            pstr(params, 0).to_string(),
             (
                 pstr(params, 1).into(),
                 pstr(params, 2).into(),
@@ -615,20 +607,12 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
         );
         return Ok((vec![], "INSERT 0 1".into()));
     }
-    if norm == "SELECT run_id, feature, created_at, list_order FROM brokkr_projected_runs" {
+    if norm == "SELECT run_id, feature, created_at FROM brokkr_projected_runs" {
         let rows = db
             .proj_runs
             .iter()
             .rev()
-            .map(|(id, (f, _, c, _, _))| {
-                let order = db.proj_run_orders.get(id).copied().unwrap_or(0);
-                vec![
-                    Some(id.clone()),
-                    Some(f.clone()),
-                    Some(c.clone()),
-                    Some(order.to_string()),
-                ]
-            })
+            .map(|(id, (f, _, c, _, _))| vec![Some(id.clone()), Some(f.clone()), Some(c.clone())])
             .collect();
         return Ok((rows, "SELECT".into()));
     }
@@ -638,7 +622,6 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
     }
     if norm == "DELETE FROM brokkr_projected_runs" {
         db.proj_runs.clear();
-        db.proj_run_orders.clear();
         return Ok((vec![], "DELETE 0".into()));
     }
     exec_coord(db, norm, params)

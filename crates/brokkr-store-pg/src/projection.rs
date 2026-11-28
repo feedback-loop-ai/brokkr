@@ -45,7 +45,7 @@ const UPSERT_PROJECTED_RUN_SQL: &str =
          head_seq = EXCLUDED.head_seq,
          head_hash = EXCLUDED.head_hash";
 const LIST_PROJECTED_RUNS_SQL: &str =
-    "SELECT run_id, feature, created_at, list_order FROM brokkr_projected_runs";
+    "SELECT run_id, feature, created_at FROM brokkr_projected_runs";
 const LOCK_PROJECTION_TABLES_SQL: &str =
     "LOCK TABLE brokkr_projected_runs, brokkr_projected_events IN EXCLUSIVE MODE";
 const DELETE_PROJECTED_EVENTS_SQL: &str = "DELETE FROM brokkr_projected_events";
@@ -99,13 +99,12 @@ pub(crate) fn list_runs(
             .map_err(PgError::into_store_error)?;
         let created_at = decode_pg_text(row.get_str(2).map_err(PgError::into_store_error)?)
             .map_err(PgError::into_store_error)?;
-        let list_order = row.get_i64(3).map_err(PgError::into_store_error)?;
-        rows.push((created_at, list_order, run_id, feature));
+        rows.push((created_at, run_id, feature));
     }
     rows.sort();
     Ok(rows
         .into_iter()
-        .map(|(created_at, _, run_id, feature)| (run_id, feature, created_at))
+        .map(|(created_at, run_id, feature)| (run_id, feature, created_at))
         .collect())
 }
 

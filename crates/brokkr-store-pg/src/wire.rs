@@ -101,6 +101,8 @@ impl Drop for TxPoisonGuard<'_> {
 pub struct PgClient {
     stream: Option<TcpStream>,
     tx_status: u8,
+    in_tx: bool,
+    tx_compromised: bool,
 }
 
 impl PgClient {
@@ -115,6 +117,8 @@ impl PgClient {
         let mut client = Self {
             stream: Some(stream),
             tx_status: b'I',
+            in_tx: false,
+            tx_compromised: false,
         };
         if let Err(err) = client.startup(config) {
             client.close();
@@ -143,7 +147,18 @@ impl PgClient {
         write_frame(&mut wire, b'E', b"\0\0\0\0\0")?;
         write_frame(&mut wire, b'S', b"")?;
         match self.send_and_read_query(&wire) {
-            Ok(res) => res,
+            Ok(res) => {
+                if self.in_tx {
+                    let ended = matches!(
+                        &res,
+                        Ok(raw) if is_tx_ending_tag(raw.command_tag.as_deref())
+                    );
+                    if ended || self.tx_status != b'T' {
+                        self.tx_compromised = true;
+                    }
+                }
+                res
+            }
             Err(err) => {
                 self.close();
                 Err(err)
@@ -153,11 +168,11 @@ impl PgClient {
 
     /// Run `f` inside `BEGIN` / `COMMIT`, automatically issuing `ROLLBACK` if
     /// `f` returns an error and closing/poisoning the connection if `f` unwinds.
-    /// Verifies that `BEGIN` entered `b'T'`, that the transaction is still open
-    /// (`b'T'`) before `COMMIT`, and that `COMMIT` completed with command tag
-    /// `"COMMIT"` and `ReadyForQuery == b'I'`, returning
-    /// [`PgError::TransactionAborted`] if the transaction was aborted or already
-    /// ended inside `f`.
+    /// Refuses nested or already-open transactions before sending `BEGIN`,
+    /// verifies that `BEGIN` entered `b'T'`, tracks whether any query in `f`
+    /// ended/chained or aborted the transaction, and verifies that `COMMIT`
+    /// completed with command tag `"COMMIT"` and `ReadyForQuery == b'I'`,
+    /// returning [`PgError::TransactionAborted`] otherwise.
     pub fn in_transaction<T, E>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, E>,
@@ -173,9 +188,11 @@ impl PgClient {
             guard.armed = false;
             res
         };
+        self.in_tx = false;
+        let compromised = std::mem::replace(&mut self.tx_compromised, false);
         match outcome {
             Ok(val) => {
-                self.commit_transaction().map_err(&map_pg)?;
+                self.commit_transaction(compromised).map_err(&map_pg)?;
                 Ok(val)
             }
             Err(err) => {
@@ -186,8 +203,16 @@ impl PgClient {
     }
 
     fn begin_transaction(&mut self) -> Result<(), PgError> {
+        if self.stream.is_none() {
+            return Err(PgError::ConnectionClosed);
+        }
+        if self.in_tx || self.tx_status != b'I' {
+            return Err(PgError::TransactionAborted);
+        }
         let raw = self.query_raw("BEGIN", &[])?;
         if raw.command_tag.as_deref() == Some("BEGIN") && self.tx_status == b'T' {
+            self.in_tx = true;
+            self.tx_compromised = false;
             return Ok(());
         }
         self.close();
@@ -197,12 +222,11 @@ impl PgClient {
         )))
     }
 
-    fn commit_transaction(&mut self) -> Result<(), PgError> {
-        if self.tx_status == b'E' {
-            self.rollback_transaction();
-            return Err(PgError::TransactionAborted);
-        }
-        if self.tx_status != b'T' {
+    fn commit_transaction(&mut self, compromised: bool) -> Result<(), PgError> {
+        if compromised {
+            if self.tx_status != b'I' {
+                self.rollback_transaction();
+            }
             return Err(PgError::TransactionAborted);
         }
         match self.query_raw("COMMIT", &[]) {
@@ -234,6 +258,8 @@ impl PgClient {
 
     fn close(&mut self) {
         self.stream = None;
+        self.in_tx = false;
+        self.tx_compromised = false;
     }
 
     fn write_all(&mut self, data: &[u8]) -> Result<(), PgError> {
@@ -283,6 +309,11 @@ impl PgClient {
                         return Err(PgError::Auth(
                             "server sent ReadyForQuery before completing authentication".into(),
                         ));
+                    }
+                    if status != b'I' {
+                        return Err(PgError::Protocol(format!(
+                            "unexpected startup ReadyForQuery status 0x{status:02x}"
+                        )));
                     }
                     self.tx_status = status;
                     return Ok(());
@@ -492,6 +523,10 @@ impl QueryReadState {
             ))),
         }
     }
+}
+
+fn is_tx_ending_tag(tag: Option<&str>) -> bool {
+    matches!(tag, Some("ROLLBACK" | "COMMIT" | "END" | "ABORT"))
 }
 
 fn parse_ready_for_query(body: &[u8]) -> Result<u8, PgError> {

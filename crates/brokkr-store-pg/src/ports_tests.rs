@@ -335,8 +335,23 @@ fn projection_monotonicity_repair_divergence_and_rebuild() {
         "2026-11-27T10:00:02Z",
     );
 
+    srv.db.lock().unwrap().queries.clear();
     proj.apply_envelopes("p-run", None, &[])
         .expect("empty fresh");
+    {
+        let apply_sql = srv.db.lock().unwrap().queries.clone();
+        let adv_idx = apply_sql
+            .iter()
+            .position(|q| q == "SELECT pg_advisory_xact_lock($1::bigint)")
+            .expect("per-run projection advisory lock recorded");
+        let for_update_idx = apply_sql
+            .iter()
+            .position(|q| {
+                q == "SELECT feature, bundle_name, created_at, head_seq, head_hash FROM brokkr_projected_runs WHERE run_id = $1 FOR UPDATE"
+            })
+            .expect("per-run projection FOR UPDATE recorded");
+        assert!(adv_idx < for_update_idx);
+    }
     proj.apply_envelopes(
         "p-run",
         Some(&json!({ "created_at": "2026-11-27T09:00:00Z" })),
@@ -594,12 +609,6 @@ fn verify_unstarted_metadata_and_rebuild(
         ]
     );
     let queries = srv.db.lock().unwrap().queries.clone();
-    assert!(queries
-        .iter()
-        .any(|q| q == "SELECT pg_advisory_xact_lock($1::bigint)"));
-    assert!(queries.iter().any(|q| q.starts_with(
-        "SELECT feature, bundle_name, created_at, head_seq, head_hash FROM brokkr_projected_runs"
-    ) && q.ends_with("FOR UPDATE")));
     let rebuild_sql = &queries[before_rebuild..];
     let lock_idx = rebuild_sql
         .iter()
@@ -721,7 +730,7 @@ fn schema_compatibility_refuses_legacy_columns_checks_and_version() {
     for (table, col, kind) in [
         ("brokkr_runs", "manifest_json", "log"),
         ("brokkr_events", "envelope_json", "log"),
-        ("brokkr_projected_runs", "list_order", "proj"),
+        ("brokkr_projected_runs", "created_at", "proj"),
         ("brokkr_projected_events", "payload_json", "proj"),
     ] {
         let srv = MockPgServer::start();
@@ -752,22 +761,26 @@ fn schema_compatibility_refuses_legacy_columns_checks_and_version() {
         Err(PgError::IncompatibleSchema(_))
     ));
 
-    let srv_ver = MockPgServer::start();
-    srv_ver
-        .db
-        .lock()
-        .unwrap()
-        .schema_meta
-        .insert("event_log".to_string(), 1);
-    assert!(matches!(
-        PgEventLog::connect(&srv_ver.config()),
-        Err(PgError::IncompatibleSchema(_))
-    ));
+    for (component, legacy_ver) in [("event_log", 1), ("coordination", 2)] {
+        let srv_ver = MockPgServer::start();
+        srv_ver
+            .db
+            .lock()
+            .unwrap()
+            .schema_meta
+            .insert(component.to_string(), legacy_ver);
+        let res = if component == "event_log" {
+            PgEventLog::connect(&srv_ver.config()).map(|_| ())
+        } else {
+            PgCoordinationStore::connect(&srv_ver.config()).map(|_| ())
+        };
+        assert!(matches!(res, Err(PgError::IncompatibleSchema(_))));
+    }
 }
 
 #[test]
 fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs() {
-    // Verify advisory lock is the first statement after BEGIN, and missing list_order
+    // Verify advisory lock is the first statement after BEGIN, and missing created_at
     // fails cleanly before CREATE INDEX runs (never raw SQLSTATE 42703).
     let srv_order = MockPgServer::start();
     srv_order
@@ -775,7 +788,7 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
         .lock()
         .unwrap()
         .omit_columns
-        .insert(("brokkr_projected_runs".into(), "list_order".into()));
+        .insert(("brokkr_projected_runs".into(), "created_at".into()));
     assert!(matches!(
         PgProjectionStore::connect(&srv_order.config()),
         Err(PgError::IncompatibleSchema(_))
@@ -841,7 +854,7 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
 }
 
 #[test]
-fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fields() {
+fn projection_tiebreaks_equal_created_at_by_run_id_and_roundtrips_nul_fields() {
     let srv = MockPgServer::start();
     let cfg = srv.config();
     let log = PgEventLog::connect(&cfg).unwrap();
@@ -849,7 +862,9 @@ fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fi
     let coord = PgCoordinationStore::connect(&cfg).unwrap();
     let journal = Journal::new(log, proj, coord);
 
-    // 1. Creation-order tie-break: "run-z" created before "run-a" with identical created_at.
+    // 1. Deterministic (created_at, run_id) tie-break: even when "run-z" is created
+    // and projected before "run-a" with identical created_at, incremental apply and
+    // rebuild_from both return ("run-a", "run-z") without ever swapping positions.
     let mz = json!({
         "engine": "0.15.2",
         "feature": "feat\u{0000}z\\slash",
@@ -875,16 +890,16 @@ fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fi
 
     append_nul_effect_stream(&journal, "run-z", &mz);
 
-    // Equal created_at keeps creation order ("run-z" before "run-a") and decodes NUL losslessly.
+    // Equal created_at orders deterministically by run_id ("run-a" before "run-z") and decodes NUL losslessly.
     let expected_list = vec![
-        (
-            "run-z".to_string(),
-            "feat\u{0000}z\\slash".to_string(),
-            "2026-11-27T10:00:00Z".to_string(),
-        ),
         (
             "run-a".to_string(),
             "feat-a".to_string(),
+            "2026-11-27T10:00:00Z".to_string(),
+        ),
+        (
+            "run-z".to_string(),
+            "feat\u{0000}z\\slash".to_string(),
             "2026-11-27T10:00:00Z".to_string(),
         ),
     ];
@@ -914,7 +929,7 @@ fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fi
         .apply_envelopes("run-z", Some(&mz), &loaded)
         .unwrap();
 
-    // rebuild_from preserves creation-order tie-break, lossless NUL fields, and checkpoint.member.
+    // rebuild_from preserves identical (created_at, run_id) order, lossless NUL fields, and checkpoint.member.
     assert_eq!(journal.reindex().unwrap(), 5);
     assert_eq!(journal.projections().list_runs().unwrap(), expected_list);
     {

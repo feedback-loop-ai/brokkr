@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::wire::PgClient;
 use crate::PgError;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 /// Fixed 64-bit PostgreSQL transaction advisory lock key (`"brokschm"`)
 /// serializing concurrent first-open schema initialization.
@@ -211,13 +211,12 @@ const PROJECTION_TABLES: &[TableSpec] = &[
             col!("created_at", Text, false, ""),
             col!("head_seq", BigInt, false, ""),
             col!("head_hash", Text, false, ""),
-            col!("list_order", BigSerial, false, ""),
         ],
         checks: &[],
         table_constraints: &[],
         indexes: &[
             "CREATE INDEX IF NOT EXISTS brokkr_projected_runs_created_idx
-            ON brokkr_projected_runs (created_at, list_order)",
+            ON brokkr_projected_runs (created_at, run_id)",
         ],
     },
     TableSpec {

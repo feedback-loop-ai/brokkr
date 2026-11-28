@@ -103,10 +103,19 @@ fn complete_trust_startup(s: &mut TcpStream) {
     send_frame(s, b'Z', b"I");
 }
 
-fn read_extended_query(s: &mut TcpStream) {
-    for _ in 0..5 {
+fn read_extended_query(s: &mut TcpStream) -> String {
+    let (tag, body) = read_client_frame(s).expect("read Parse frame");
+    assert_eq!(tag, b'P');
+    let stmt_end = body.iter().position(|&b| b == 0).expect("stmt NUL");
+    let rest = &body[stmt_end + 1..];
+    let sql_end = rest.iter().position(|&b| b == 0).expect("sql NUL");
+    let sql = std::str::from_utf8(&rest[..sql_end])
+        .expect("utf8 sql")
+        .to_string();
+    for _ in 0..4 {
         let _ = read_client_frame(s);
     }
+    sql
 }
 
 fn send_scram_offer(s: &mut TcpStream) {
@@ -117,7 +126,7 @@ fn send_scram_offer(s: &mut TcpStream) {
 }
 
 fn send_begin_ok(s: &mut TcpStream) {
-    read_extended_query(s);
+    assert_eq!(read_extended_query(s), "BEGIN");
     send_frame(s, b'1', b"");
     send_frame(s, b'2', b"");
     send_frame(s, b'n', b"");
@@ -132,13 +141,20 @@ fn send_tx_error_and_rollback(
     constraint: Option<&str>,
 ) {
     send_begin_ok(s);
-    read_extended_query(s);
+    let _ = read_extended_query(s);
     send_frame(s, b'E', &error_payload(sqlstate, msg, constraint));
     send_frame(s, b'Z', b"E");
-    read_extended_query(s);
+    assert_eq!(read_extended_query(s), "ROLLBACK");
     send_frame(s, b'C', b"ROLLBACK\0");
     send_frame(s, b'Z', b"I");
     let _ = read_client_frame(s);
+}
+
+fn assert_tx_query_aborted(client: &mut PgClient, sql: &str) {
+    let err = client
+        .in_transaction(|tx| tx.query(sql, &[]).map(|_| ()), |e| e)
+        .unwrap_err();
+    assert!(matches!(err, PgError::TransactionAborted));
 }
 
 fn spawn_tx_single_reply(
@@ -769,12 +785,19 @@ fn wire_refuses_nul_cstrs_length_overflow_and_bad_row_descriptions() {
 
 #[test]
 fn wire_validates_ready_for_query_and_rejects_premature_ready() {
-    // 1. Startup malformed ReadyForQuery payload (empty, 2-byte, invalid status).
-    for bad_z in [vec![], b"II".to_vec(), b"X".to_vec()] {
+    // 1. Startup malformed ReadyForQuery payload and non-idle status ('T', 'E') close socket.
+    for bad_z in [
+        vec![],
+        b"II".to_vec(),
+        b"X".to_vec(),
+        b"T".to_vec(),
+        b"E".to_vec(),
+    ] {
         let (p, h) = spawn_one_shot(move |mut s| {
             let _ = read_startup(&mut s);
             send_frame(&mut s, b'R', &0i32.to_be_bytes());
             send_frame(&mut s, b'Z', &bad_z);
+            assert!(read_client_frame(&mut s).is_none());
         });
         let cfg = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p}/db")).unwrap();
         assert!(matches!(PgClient::connect(&cfg), Err(PgError::Protocol(_))));
@@ -862,16 +885,7 @@ fn wire_transaction_rejects_aborted_commit_rollback_and_unexpected_outcome() {
 fn wire_transaction_tracks_tx_status_begin_self_rollback_and_unwind_poison() {
     // 1. Callback rolls back its own transaction leaving tx_status == 'I': refuses without COMMIT.
     let (mut c_rb, h_self_rb) = spawn_tx_single_reply(true, b"ROLLBACK\0", b"I");
-    let err = c_rb
-        .in_transaction(
-            |tx| {
-                tx.query("ROLLBACK", &[])?;
-                Ok::<(), PgError>(())
-            },
-            |e| e,
-        )
-        .unwrap_err();
-    assert!(matches!(err, PgError::TransactionAborted));
+    assert_tx_query_aborted(&mut c_rb, "ROLLBACK");
     drop(c_rb);
     h_self_rb.join().unwrap();
 
@@ -913,6 +927,75 @@ fn wire_transaction_tracks_tx_status_begin_self_rollback_and_unwind_poison() {
         Err(PgError::ConnectionClosed)
     ));
     h_rb_bad.join().unwrap();
+}
+
+#[test]
+fn wire_transaction_refuses_chained_end_and_nested_entry() {
+    // 1. ROLLBACK AND CHAIN / COMMIT AND CHAIN / END / ABORT inside callback leaves
+    // tx_status == 'T' on the server; client MUST roll back (never COMMIT) and return TransactionAborted.
+    for (sql, tag) in [
+        ("ROLLBACK AND CHAIN", &b"ROLLBACK\0"[..]),
+        ("COMMIT AND CHAIN", &b"COMMIT\0"[..]),
+        ("END", &b"END\0"[..]),
+        ("ABORT", &b"ABORT\0"[..]),
+    ] {
+        let (p, h) = spawn_one_shot(move |mut s| {
+            complete_trust_startup(&mut s);
+            send_begin_ok(&mut s);
+            assert_eq!(read_extended_query(&mut s), sql);
+            send_frame(&mut s, b'C', tag);
+            send_frame(&mut s, b'Z', b"T");
+            assert_eq!(read_extended_query(&mut s), "ROLLBACK");
+            send_frame(&mut s, b'C', b"ROLLBACK\0");
+            send_frame(&mut s, b'Z', b"I");
+            let _ = read_client_frame(&mut s);
+        });
+        let cfg = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p}/db")).unwrap();
+        let mut client = PgClient::connect(&cfg).expect("connect");
+        assert_tx_query_aborted(&mut client, sql);
+        drop(client);
+        h.join().unwrap();
+    }
+
+    // 2. Nested in_transaction inside an active in_transaction is refused before BEGIN.
+    let (p_nest, h_nest) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        assert_eq!(read_extended_query(&mut s), "COMMIT");
+        send_frame(&mut s, b'C', b"COMMIT\0");
+        send_frame(&mut s, b'Z', b"I");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_nest = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_nest}/db")).unwrap();
+    let mut c_nest = PgClient::connect(&cfg_nest).expect("connect");
+    c_nest
+        .in_transaction(
+            |tx| {
+                let inner = tx.in_transaction(|_| Ok::<(), PgError>(()), |e| e);
+                assert!(matches!(inner, Err(PgError::TransactionAborted)));
+                Ok::<(), PgError>(())
+            },
+            |e| e,
+        )
+        .expect("outer commits cleanly");
+    drop(c_nest);
+    h_nest.join().unwrap();
+
+    // 3. Entering in_transaction while connection is already in 'T' (manual BEGIN) refuses before BEGIN.
+    let (p_open, h_open) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        assert!(matches!(read_client_frame(&mut s), Some((b'X', _))));
+    });
+    let cfg_open = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_open}/db")).unwrap();
+    let mut c_open = PgClient::connect(&cfg_open).expect("connect");
+    c_open.query("BEGIN", &[]).expect("manual begin");
+    assert!(matches!(
+        c_open.in_transaction(|_| Ok::<(), PgError>(()), |e| e),
+        Err(PgError::TransactionAborted)
+    ));
+    drop(c_open);
+    h_open.join().unwrap();
 }
 
 #[test]
