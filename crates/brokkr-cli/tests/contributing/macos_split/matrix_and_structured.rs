@@ -2,8 +2,10 @@
 //! admission across YAML kinds, and structured-read tests for caller
 //! shard-list and macOS runner checks (#1417, decision 0071 rulings 3, 5, 8 and 9).
 
+use std::collections::BTreeMap;
+
 use super::{ci_macos_split_problems, ShardWorkflows, SplitProblem};
-use crate::workflow::{ClosedWorkflow, ClosedWorkflowError, RefusalKind};
+use crate::workflow::{ClosedWorkflow, ClosedWorkflowError, RefusalKind, Scalar};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum YamlKind {
@@ -248,6 +250,89 @@ fn non_string_workflow_root_keys_yield_top_level_refusal_across_yaml_kinds() {
     }
 }
 
+fn expected_scalar(kind: YamlKind) -> Scalar {
+    match kind {
+        YamlKind::Null => Scalar::Null,
+        YamlKind::Bool => Scalar::Bool(false),
+        YamlKind::Number => Scalar::Int(1),
+        YamlKind::String => Scalar::String("linux".to_string()),
+        YamlKind::List | YamlKind::Mapping => Scalar::Complex,
+    }
+}
+
+fn s(val: &str) -> Scalar {
+    Scalar::String(val.to_string())
+}
+
+fn assert_admitted_matrix(
+    pos: MatrixPosition,
+    kind: YamlKind,
+    wf: &ClosedWorkflow,
+    file: &str,
+    job: &str,
+) {
+    let matrix = wf
+        .require_job(file, job)
+        .expect("admitted workflow must keep job")
+        .matrix()
+        .expect("admitted cell must keep parsed matrix");
+    type MatrixAxes = BTreeMap<String, Vec<Scalar>>;
+    type MatrixRows = Vec<BTreeMap<String, Scalar>>;
+    let (expected_axes, expected_include): (MatrixAxes, MatrixRows) = match pos {
+        MatrixPosition::MatrixValue => (BTreeMap::from([("os".into(), vec![s("linux")])]), vec![]),
+        MatrixPosition::AxisKey | MatrixPosition::AxisValue => (
+            BTreeMap::from([
+                ("os".into(), vec![s("linux")]),
+                ("machine".into(), vec![s("linux")]),
+            ]),
+            vec![],
+        ),
+        MatrixPosition::AxisItem => (
+            BTreeMap::from([
+                ("os".into(), vec![s("linux")]),
+                ("machine".into(), vec![expected_scalar(kind)]),
+            ]),
+            vec![],
+        ),
+        MatrixPosition::IncludeValueAdmittedJob => (
+            BTreeMap::new(),
+            vec![BTreeMap::from([("os".into(), s("ubuntu-24.04"))])],
+        ),
+        MatrixPosition::IncludeRow => (
+            BTreeMap::new(),
+            vec![
+                BTreeMap::from([("os".into(), s("ubuntu-24.04"))]),
+                BTreeMap::from([("os".into(), s("ubuntu-24.04"))]),
+            ],
+        ),
+        MatrixPosition::IncludeRowKey => (
+            BTreeMap::new(),
+            vec![
+                BTreeMap::from([("os".into(), s("ubuntu-24.04"))]),
+                BTreeMap::from([
+                    ("os".into(), s("ubuntu-24.04")),
+                    ("machine".into(), s("ubuntu-24.04")),
+                ]),
+            ],
+        ),
+        MatrixPosition::IncludeRowValue => (
+            BTreeMap::new(),
+            vec![
+                BTreeMap::from([("os".into(), s("ubuntu-24.04"))]),
+                BTreeMap::from([("os".into(), expected_scalar(kind))]),
+            ],
+        ),
+        MatrixPosition::IncludeValueDisallowedJob | MatrixPosition::ExcludeValue => {
+            unreachable!("cell ({pos:?}, {kind:?}) must never be admitted")
+        }
+    };
+    assert_eq!(
+        (&matrix.axes, &matrix.include),
+        (&expected_axes, &expected_include),
+        "admitted cell ({pos:?}, {kind:?}) did not retain expected parsed matrix values"
+    );
+}
+
 #[test]
 fn matrix_position_by_yaml_kind_table_admits_or_refuses_without_parse_error() {
     for pos in ALL_POSITIONS {
@@ -255,11 +340,10 @@ fn matrix_position_by_yaml_kind_table_admits_or_refuses_without_parse_error() {
             let (file, job, yaml, expected_detail) = matrix_cell_case(pos, kind);
             match expected_detail {
                 None => {
-                    let res = ClosedWorkflow::parse(file, &yaml);
-                    assert!(
-                        res.is_ok(),
-                        "cell ({pos:?}, {kind:?}) expected admitted, got {res:?}\n{yaml}"
-                    );
+                    let wf = ClosedWorkflow::parse(file, &yaml).unwrap_or_else(|err| {
+                        panic!("cell ({pos:?}, {kind:?}) expected admitted, got {err:?}\n{yaml}")
+                    });
+                    assert_admitted_matrix(pos, kind, &wf, file, job);
                 }
                 Some(detail) => assert_refusal(
                     file,
@@ -270,6 +354,35 @@ fn matrix_position_by_yaml_kind_table_admits_or_refuses_without_parse_error() {
                     &format!("cell ({pos:?}, {kind:?})"),
                 ),
             }
+        }
+    }
+
+    // Observable effect: a bare step `if: matrix.os` admits String include rows and refuses every
+    // non-string include-row value (dropping e.g. `os: false` would wrongly treat row 2 as omitted).
+    for kind in ALL_KINDS {
+        let yaml = format!(
+            "on: workflow_dispatch\njobs:\n  pr-caches:\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: {{ include: [{{ os: ubuntu-24.04 }}, {{ os: {} }}] }}\n    steps:\n      - if: matrix.os\n        run: echo ok\n",
+            value_yaml(kind, "[ubuntu-24.04]", "{ a: 1 }")
+        );
+        if kind == YamlKind::String {
+            let wf = ClosedWorkflow::parse("ci.yml", &yaml)
+                .expect("bare matrix.os over all-string include rows must admit");
+            assert_admitted_matrix(
+                MatrixPosition::IncludeRowValue,
+                kind,
+                &wf,
+                "ci.yml",
+                "pr-caches",
+            );
+        } else {
+            assert_refusal(
+                "ci.yml",
+                &yaml,
+                RefusalKind::ConditionBarePath,
+                "job pr-caches step 1 if",
+                "bare matrix axis `matrix.os` does not name a non-empty string row with all other rows non-empty strings or omitted",
+                &format!("bare matrix.os with IncludeRowValue {kind:?}"),
+            );
         }
     }
 
@@ -288,6 +401,72 @@ fn matrix_position_by_yaml_kind_table_admits_or_refuses_without_parse_error() {
             &format!("exclude row key {kind:?}"),
         );
     }
+}
+
+#[test]
+fn job_level_if_refuses_step_only_contexts_and_preserves_step_if() {
+    let job_if_cases = [
+        (
+            "matrix.os == 'linux'",
+            "comparison on `matrix.os` on a job `if` (available only on step `if`)",
+        ),
+        (
+            "matrix.os",
+            "bare matrix axis `matrix.os` on a job `if` (available only on step `if`)",
+        ),
+        (
+            "runner.environment == 'self-hosted'",
+            "comparison on `runner.environment` on a job `if` (available only on step `if`)",
+        ),
+        (
+            "always() && matrix.os == 'linux'",
+            "comparison on `matrix.os` on a job `if` (available only on step `if`)",
+        ),
+        (
+            "github.event_name == 'workflow_dispatch' || runner.environment == 'self-hosted'",
+            "comparison on `runner.environment` on a job `if` (available only on step `if`)",
+        ),
+    ];
+    for (expr, expected_detail) in job_if_cases {
+        let yaml = format!(
+            "on: workflow_dispatch\njobs:\n  sample:\n    if: {expr}\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: {{ os: [linux] }}\n    steps:\n      - run: echo ok\n"
+        );
+        assert_refusal(
+            "sample.yml",
+            &yaml,
+            RefusalKind::ConditionUnbound,
+            "job sample if",
+            expected_detail,
+            &format!("job if `{expr}`"),
+        );
+    }
+
+    // The same step-only contexts remain admitted on step `if:`, and job-scoped contexts stay valid on job `if:`.
+    for expr in [
+        "matrix.os == 'linux'",
+        "matrix.os",
+        "runner.environment == 'self-hosted'",
+    ] {
+        let yaml = format!(
+            "on: workflow_dispatch\njobs:\n  sample:\n    if: github.event_name == 'workflow_dispatch'\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: {{ os: [linux] }}\n    steps:\n      - if: {expr}\n        run: echo ok\n"
+        );
+        ClosedWorkflow::parse("sample.yml", &yaml)
+            .unwrap_or_else(|err| panic!("step if `{expr}` must be admitted, got {err:?}\n{yaml}"));
+    }
+
+    // Admitted `include`-matrix job also refuses bare `matrix.*` on job `if:` while admitting it on step `if:`.
+    let include_job_if = "on: workflow_dispatch\njobs:\n  pr-caches:\n    if: matrix.os\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: { include: [{ os: ubuntu-24.04 }] }\n    steps:\n      - run: echo ok\n";
+    assert_refusal(
+        "ci.yml",
+        include_job_if,
+        RefusalKind::ConditionUnbound,
+        "job pr-caches if",
+        "bare matrix axis `matrix.os` on a job `if` (available only on step `if`)",
+        "include job if bare matrix.os",
+    );
+    let include_step_if = "on: workflow_dispatch\njobs:\n  pr-caches:\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: { include: [{ os: ubuntu-24.04 }] }\n    steps:\n      - if: matrix.os\n        run: echo ok\n";
+    ClosedWorkflow::parse("ci.yml", include_step_if)
+        .expect("include job step if bare matrix.os must admit");
 }
 
 #[test]

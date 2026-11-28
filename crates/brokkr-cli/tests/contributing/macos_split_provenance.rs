@@ -1117,14 +1117,14 @@ fn release_provenance_rejects_conditional_build_uploads_and_downloads() {
 
     let conditional_build_job = release.replacen(
         "  build:\n    name: build (${{ matrix.name }})\n",
-        "  build:\n    name: build (${{ matrix.name }})\n    if: matrix.nfpm_arch\n",
+        "  build:\n    name: build (${{ matrix.name }})\n    if: github.event_name == 'push'\n",
         1,
     );
     assert_eq!(
         release_artifact_provenance_problems(&conditional_build_job, &called),
         vec![ProvenanceProblem::ConditionalJob {
             job_id: "build".to_string(),
-            cond: "matrix.nfpm_arch".to_string(),
+            cond: "github.event_name == 'push'".to_string(),
         }]
     );
 

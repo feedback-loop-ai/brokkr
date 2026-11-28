@@ -714,6 +714,24 @@ fn matrix_axis_bare_truthy_valid(matrix: &Matrix, axis: &str) -> bool {
     matrix_axis_all_non_empty_strings(matrix, axis)
 }
 
+fn require_step_scope(
+    step_idx: Option<usize>,
+    detail: impl Into<String>,
+    file: &str,
+    place: &str,
+) -> Result<(), ClosedFormRefusal> {
+    if step_idx.is_some() {
+        return Ok(());
+    }
+    Err(ClosedFormRefusal::new(
+        file,
+        place,
+        RefusalKind::ConditionUnbound,
+        detail,
+        ALLOWED_PATHS,
+    ))
+}
+
 fn validate_condition_static(
     wf: &Workflow,
     workflow_call_inputs: &[(String, ClosedWorkflowInput)],
@@ -726,7 +744,7 @@ fn validate_condition_static(
     match &cond.body {
         ConditionBody::Unconditional => Ok(()),
         ConditionBody::Bare(path) => {
-            validate_bare_path(workflow_call_inputs, job, path, file, place)
+            validate_bare_path(workflow_call_inputs, job, step_idx, path, file, place)
         }
         ConditionBody::All(cmps) | ConditionBody::Any(cmps) => cmps.iter().try_for_each(|cmp| {
             validate_comparison_static(wf, workflow_call_inputs, job, step_idx, cmp, file, place)
@@ -737,6 +755,7 @@ fn validate_condition_static(
 fn validate_bare_path(
     workflow_call_inputs: &[(String, ClosedWorkflowInput)],
     job: &Job,
+    step_idx: Option<usize>,
     path: &ContextPath,
     file: &str,
     place: &str,
@@ -758,6 +777,14 @@ fn validate_bare_path(
             ))
         }
         ContextPath::Matrix(axis) => {
+            require_step_scope(
+                step_idx,
+                format!(
+                    "bare matrix axis `matrix.{axis}` on a job `if` (available only on step `if`)"
+                ),
+                file,
+                place,
+            )?;
             if job
                 .matrix
                 .as_ref()
@@ -785,6 +812,35 @@ fn validate_bare_path(
     }
 }
 
+fn validate_matrix_comparison(
+    job: &Job,
+    step_idx: Option<usize>,
+    axis: &str,
+    file: &str,
+    place: &str,
+) -> Result<(), ClosedFormRefusal> {
+    require_step_scope(
+        step_idx,
+        format!("comparison on `matrix.{axis}` on a job `if` (available only on step `if`)"),
+        file,
+        place,
+    )?;
+    if job
+        .matrix
+        .as_ref()
+        .is_some_and(|m| matrix_axis_all_non_empty_strings(m, axis))
+    {
+        return Ok(());
+    }
+    Err(ClosedFormRefusal::new(
+        file,
+        place,
+        RefusalKind::ConditionTypeMismatch,
+        format!("comparison on `matrix.{axis}` which is not a non-empty string in every row"),
+        ALLOWED_COMPARISONS,
+    ))
+}
+
 fn validate_comparison_static(
     wf: &Workflow,
     workflow_call_inputs: &[(String, ClosedWorkflowInput)],
@@ -794,26 +850,18 @@ fn validate_comparison_static(
     file: &str,
     place: &str,
 ) -> Result<(), ClosedFormRefusal> {
+    let refuse = |kind, detail: String, allowed| {
+        Err(ClosedFormRefusal::new(file, place, kind, detail, allowed))
+    };
     match &cmp.path {
-        ContextPath::GithubEventName | ContextPath::RunnerEnvironment => Ok(()),
-        ContextPath::Matrix(axis) => {
-            if job
-                .matrix
-                .as_ref()
-                .is_some_and(|m| matrix_axis_all_non_empty_strings(m, axis))
-            {
-                return Ok(());
-            }
-            Err(ClosedFormRefusal::new(
-                file,
-                place,
-                RefusalKind::ConditionTypeMismatch,
-                format!(
-                    "comparison on `matrix.{axis}` which is not a non-empty string in every row"
-                ),
-                ALLOWED_COMPARISONS,
-            ))
-        }
+        ContextPath::GithubEventName => Ok(()),
+        ContextPath::RunnerEnvironment => require_step_scope(
+            step_idx,
+            "comparison on `runner.environment` on a job `if` (available only on step `if`)",
+            file,
+            place,
+        ),
+        ContextPath::Matrix(axis) => validate_matrix_comparison(job, step_idx, axis, file, place),
         ContextPath::Input(name) => {
             let ty = find_workflow_call_input(workflow_call_inputs, name).map(|i| i.input_type);
             if matches!(
@@ -822,29 +870,25 @@ fn validate_comparison_static(
             ) {
                 return Ok(());
             }
-            Err(ClosedFormRefusal::new(
-                file,
-                place,
+            refuse(
                 RefusalKind::ConditionTypeMismatch,
                 format!(
                     "comparison on `inputs.{name}` which is not declared `type: string` or `choice`"
                 ),
                 ALLOWED_COMPARISONS,
-            ))
+            )
         }
         ContextPath::NeedsResult(dep) => {
             if job.needs.iter().any(|n| n == dep) && wf.job(dep).is_some() {
                 return Ok(());
             }
-            Err(ClosedFormRefusal::new(
-                file,
-                place,
+            refuse(
                 RefusalKind::ConditionUnbound,
                 format!(
                     "comparison on `needs.{dep}.result` where `{dep}` is not in this job's `needs`"
                 ),
                 ALLOWED_PATHS,
-            ))
+            )
         }
         ContextPath::NeedsOutput { job: dep, output } => {
             let ok = job.needs.iter().any(|n| n == dep)
@@ -854,15 +898,13 @@ fn validate_comparison_static(
             if ok {
                 return Ok(());
             }
-            Err(ClosedFormRefusal::new(
-                file,
-                place,
+            refuse(
                 RefusalKind::ConditionUnbound,
                 format!(
                     "comparison on `needs.{dep}.outputs.{output}` not declared on a needed job"
                 ),
                 ALLOWED_PATHS,
-            ))
+            )
         }
         ContextPath::StepOutput { step: step_id, .. } => {
             let ok = step_idx.is_some_and(|idx| {
@@ -873,15 +915,13 @@ fn validate_comparison_static(
             if ok {
                 return Ok(());
             }
-            Err(ClosedFormRefusal::new(
-                file,
-                place,
+            refuse(
                 RefusalKind::ConditionUnbound,
                 format!(
                     "comparison on `steps.{step_id}.outputs.*` without an earlier step id `{step_id}`"
                 ),
                 ALLOWED_PATHS,
-            ))
+            )
         }
     }
 }
