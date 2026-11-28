@@ -118,6 +118,7 @@ struct FakeAgySpec<'a> {
     exit_code: i32,
     sleep_after_first: bool,
     remove_old_note: bool,
+    snap_tag: &'a str,
 }
 
 impl<'a> FakeAgySpec<'a> {
@@ -133,6 +134,7 @@ impl<'a> FakeAgySpec<'a> {
             exit_code: 0,
             sleep_after_first: false,
             remove_old_note: false,
+            snap_tag: "snap",
         }
     }
 }
@@ -189,13 +191,15 @@ fn write_fake_rejoin_agy(seat_dir: &Path, spec: &FakeAgySpec<'_>) -> PathBuf {
     )
     .unwrap();
     let actions = fake_agy_actions(seat_dir, spec, &stdout_file);
-    let (d, id) = (seat_dir.display(), spec.id);
+    let (d, id, tag) = (seat_dir.display(), spec.id, spec.snap_tag);
     let script = format!(
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then printf '%s\\n' '{}'; exit {}; fi\n\
          printf '%s\\n' \"$@\" > '{d}/last.argv'\n\
-         cp \"$HOME/.gemini/config/mcp_config.json\" '{d}/snap.mcp' 2>/dev/null || true\n\
-         cp \"$HOME/.gemini/config/hooks.json\" '{d}/snap.hooks' 2>/dev/null || true\n\
+         for p in \"mcp_config.json:{tag}.mcp\" \"hooks.json:{tag}.hooks\"; do\n\
+           s=\"$HOME/.gemini/config/${{p%%:*}}\"; t=\"{d}/${{p##*:}}\"\n\
+           if [ -f \"$s\" ]; then cp \"$s\" \"$t\"; else rm -f \"$t\"; fi\n\
+         done\n\
          if [ -e \"$HOME/.gemini/antigravity-cli/conversations\" ] || [ -e \"$HOME/.gemini/antigravity-cli/brain\" ]; then : > '{d}/had_restored_dirs.marker'; fi\n\
          for p in \"conversations/{id}.db:restored.db\" \"brain/{id}/note.txt:restored.note\"; do\n\
            s=\"$HOME/.gemini/antigravity-cli/${{p%%:*}}\"; t=\"{d}/${{p##*:}}\"\n\
@@ -327,101 +331,6 @@ fn started_row(emitted: &[(Step, Value)]) -> Option<&Value> {
         .find_map(|(s, r)| (*s == Step::HarnessStarted).then_some(r))
 }
 
-fn fold_recording(name: &str, offered: Option<&str>) -> (Map<String, Value>, LaunchTerminal) {
-    let text = recorded_box(name);
-    let mut fold = AgyFold::new(FLASH, &[]);
-    let mut plan = LaunchPlan::cold(Vec::new(), "agy-conversation", None);
-    if let Some(id) = offered {
-        plan.rejoining = Some(id.to_string());
-        plan.harness_version = Some("1.5.18".to_string());
-    }
-    let mut hold = LaunchHold::new("agy", plan);
-    let mut record = Map::new();
-    for line in text.lines() {
-        let action = fold.read(line.as_bytes(), &mut record, &mut hold, &mut |_| {});
-        if !matches!(action, Line::Read) {
-            break;
-        }
-    }
-    (record, hold.terminal())
-}
-
-#[test]
-fn l6_rejoin_accounting_sums_step_rows_only_and_cold_matches_result() {
-    let cases = [
-        (
-            "l2c-02-rejoin-kept.ndjson",
-            Some(UUID_A),
-            LaunchTerminal::Resumed,
-            9_801,
-            31,
-            None,
-            None,
-        ),
-        (
-            "l2c-03-rejoin-chain.ndjson",
-            Some(UUID_A),
-            LaunchTerminal::Resumed,
-            10_049,
-            13,
-            None,
-            None,
-        ),
-        (
-            "l2c-11-iso-rejoin.ndjson",
-            Some("faa7e769-0ab7-4a47-b134-1282c2144460"),
-            LaunchTerminal::Resumed,
-            12_870 + 8_724,
-            49,
-            Some(8_724),
-            None,
-        ),
-        (
-            "l2c-13-box-rejoin.ndjson",
-            Some("eb33b726-8955-4cfd-bd92-80d433deb774"),
-            LaunchTerminal::Resumed,
-            12_722 + 8_530,
-            55,
-            Some(8_530),
-            None,
-        ),
-        (
-            "l2c-01-cold.ndjson",
-            None,
-            LaunchTerminal::Cold,
-            9_575,
-            2,
-            None,
-            Some(1),
-        ),
-        (
-            "l2c-10-iso-cold.ndjson",
-            None,
-            LaunchTerminal::Cold,
-            16_543 + 24_280,
-            236,
-            Some(24_280),
-            Some(1),
-        ),
-    ];
-    for (file, offered, expected_term, input, output, cache, turns) in cases {
-        let (rec, term) = fold_recording(file, offered);
-        assert_eq!(term, expected_term, "{file}");
-        assert_eq!(rec["input_tokens"], json!(input), "{file}");
-        assert_eq!(rec["output_tokens"], json!(output), "{file}");
-        assert_eq!(
-            rec.get("cache_read_tokens"),
-            cache.map(|v| json!(v)).as_ref(),
-            "{file}"
-        );
-        assert_eq!(
-            rec.get("num_turns"),
-            turns.map(|v| json!(v)).as_ref(),
-            "{file}"
-        );
-    }
-}
-
 fn assert_turn2_kept(conv: &Path, emitted: &[(Step, Value)]) {
     let started = started_row(emitted).expect("harness-started emitted");
     assert_eq!(started["launch"], "resumed");
@@ -464,11 +373,14 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
     );
     let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
     let cold_stdout = recorded_box("l2c-01-cold.ndjson").replace(UUID_A, UUID_B);
-    let cold_spec = FakeAgySpec::turn(UUID_B, &cold_stdout, Some("db-cold"), ("note.txt", "cold"));
+    let mut cold_spec =
+        FakeAgySpec::turn(UUID_B, &cold_stdout, Some("db-cold"), ("note.txt", "cold"));
+    cold_spec.snap_tag = "cold";
     drive_offer(&mut world, &cold_spec, &input, None, &[]);
     let cold_argv = read_argv(&seat_dir);
-    let cold_mcp = std::fs::read_to_string(seat_dir.join("snap.mcp")).unwrap();
-    let cold_hooks = std::fs::read_to_string(seat_dir.join("snap.hooks")).unwrap();
+    let text = |name| std::fs::read_to_string(seat_dir.join(name)).expect(name);
+    let cold_mcp = text("cold.mcp");
+    let cold_hooks = text("cold.hooks");
 
     let mut t2 = FakeAgySpec::turn(
         UUID_A,
@@ -477,6 +389,7 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
         ("step2.txt", "brain-turn-2"),
     );
     t2.remove_old_note = true;
+    t2.snap_tag = "turn2";
     let (mut lock_at, mut live_during_turn) = (Vec::new(), None);
     let (res2, emitted) = drive_offer_result(&mut world, &t2, &input, Some(UUID_A), &[], |e| {
         if matches!(
@@ -497,9 +410,8 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
     let mut expected_argv = cold_argv;
     expected_argv.extend(["--conversation".to_string(), UUID_A.to_string()]);
     assert_eq!(read_argv(&seat_dir), expected_argv);
-    let text = |name| std::fs::read_to_string(seat_dir.join(name)).unwrap();
-    assert_eq!(text("snap.mcp"), cold_mcp);
-    assert_eq!(text("snap.hooks"), cold_hooks);
+    assert_eq!(text("turn2.mcp"), cold_mcp);
+    assert_eq!(text("turn2.hooks"), cold_hooks);
     assert_eq!(text("restored.db"), "db-turn-1");
     assert_eq!(text("restored.note"), "brain-turn-1");
     assert_eq!(
@@ -520,17 +432,20 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
 
     assert_turn2_kept(&conv, &emitted);
 
-    let t3 = FakeAgySpec::turn(
+    let mut t3 = FakeAgySpec::turn(
         UUID_A,
         &l2c_03,
         Some("db-turn-3"),
         ("step3.txt", "brain-turn-3"),
     );
+    t3.snap_tag = "turn3";
     let (inv3, _) = drive_offer(&mut world, &t3, &input, Some(UUID_A), &[]);
     assert_eq!(
         (inv3.launch, &inv3.session_meta["input_tokens"]),
         (LaunchTerminal::Resumed, &json!(10_049))
     );
+    assert_eq!(text("turn3.mcp"), cold_mcp);
+    assert_eq!(text("turn3.hooks"), cold_hooks);
     assert_eq!(text("restored.db"), "db-turn-2");
     assert_eq!(
         std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
@@ -1890,3 +1805,4 @@ fn f10_stage_replace_transcript_unowned_and_oversized_cleanup() {
 }
 
 mod guards;
+mod recordings;
