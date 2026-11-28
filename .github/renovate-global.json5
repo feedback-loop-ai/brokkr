@@ -6,6 +6,11 @@
   platform: 'github',
   onboarding: false,
   requireConfig: 'required',
+  // Names listed in `configFileNames` are checked before Renovate's built-in
+  // list, and the first file found is the one used; listing the pinned file
+  // ensures Renovate reads `.github/renovate.json5` whenever it exists, and
+  // the digest guard refuses a tree where it does not.
+  configFileNames: ['.github/renovate.json5'],
   // Renovate cannot compute release tarball or workflow file digests.
   // `refresh-pin-checksums.sh` re-downloads a bumped tool release and rewrites
   // its sha256; `refresh-workflow-digests.sh` refreshes `.github/workflow-digests.txt`

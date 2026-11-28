@@ -1354,32 +1354,38 @@ fn closed_form_closes_g13_pattern_g15_whole_script_and_g16_ascii_literal_finding
 fn closed_form_refuses_empty_matrix_clauses_malformed_schedule_and_workflow_call_filters() {
     let wfs = ShardWorkflows::load();
 
-    // L1a: empty `include: []` and empty `exclude: []` are refused like non-empty ones.
-    let empty_exclude = wfs.shards.replacen(
-        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n",
-        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n        exclude: []\n",
-        1,
-    );
-    assert_ne!(empty_exclude, wfs.shards);
-    assert!(has_refusal(
-        &wfs.with_shards(empty_exclude).problems(),
-        "macos-test-shards.yml",
-        "job macos-machines strategy.matrix",
-        RefusalKind::MatrixClause,
-    ));
-
-    let empty_include = wfs.shards.replacen(
-        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n",
-        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n        include: []\n",
-        1,
-    );
-    assert_ne!(empty_include, wfs.shards);
-    assert!(has_refusal(
-        &wfs.with_shards(empty_include).problems(),
-        "macos-test-shards.yml",
-        "job macos-machines strategy.matrix",
-        RefusalKind::MatrixClause,
-    ));
+    // L1a + Y2: `exclude` and disallowed `include` are refused as MatrixClause
+    // regardless of value shape (empty list, boolean, string, mapping, null).
+    for (clause, expected_detail) in [
+        ("exclude", "matrix `exclude`"),
+        ("include", "matrix `include`"),
+    ] {
+        for value in ["[]", "false", "'bad'", "{ machine: macos/1 }", ""] {
+            let line = if value.is_empty() {
+                format!("        {clause}:\n")
+            } else {
+                format!("        {clause}: {value}\n")
+            };
+            let mutated = wfs.shards.replacen(
+                "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n",
+                &format!("        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n{line}"),
+                1,
+            );
+            assert_ne!(mutated, wfs.shards, "{clause}: {value}");
+            let probs = wfs.with_shards(mutated).problems();
+            assert!(
+                probs.iter().any(|p| matches!(
+                    p,
+                    SplitProblem::ClosedForm(r)
+                        if r.file == "macos-test-shards.yml"
+                            && r.place == "job macos-machines strategy.matrix"
+                            && r.kind == RefusalKind::MatrixClause
+                            && r.detail == expected_detail
+                )),
+                "{clause}: {value} -> {probs:?}"
+            );
+        }
+    }
 
     // L1b: `on.schedule` empty list, null, or mapping instead of list yields ClosedFormRefusal on `on.schedule`.
     for bad_sched in ["  schedule: []\n", "  schedule:\n"] {
@@ -1431,6 +1437,51 @@ fn closed_form_refuses_empty_matrix_clauses_malformed_schedule_and_workflow_call
                 RefusalKind::EventFilter,
             ),
             "workflow_call with `{label}` must be refused"
+        );
+    }
+}
+
+#[test]
+fn closed_form_refuses_non_row_include_on_admitted_include_jobs() {
+    let wfs = ShardWorkflows::load();
+    let ci_include_block = "      matrix:\n        include:\n          - key: engine-machines\n            os: ubuntu-24.04\n          - key: build-macos\n            os: macos-latest\n          - key: seatbelt-lifetime\n            os: macos-latest\n          - key: bootstrap-budgets-macos\n            os: macos-latest\n          - key: packaging\n            os: ubuntu-24.04\n";
+    let release_include_block = "      matrix:\n        include:\n          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: brokkr-linux-x86_64, nfpm_arch: amd64 }\n          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: brokkr-linux-aarch64, nfpm_arch: arm64 }\n          - { os: macos-latest,     target: aarch64-apple-darwin,      name: brokkr-macos-arm64 }\n          # macos-13 (Intel runners) is retired: cross-compile from arm64.\n          - { os: macos-latest,     target: x86_64-apple-darwin,       name: brokkr-macos-x86_64, cross: true }\n";
+
+    for value in ["false", "'bad'", "{ os: ubuntu-24.04 }", "", "[false]"] {
+        let replacement = if value.is_empty() {
+            "      matrix:\n        include:\n".to_string()
+        } else {
+            format!("      matrix:\n        include: {value}\n")
+        };
+
+        let bad_ci = wfs.ci.replacen(ci_include_block, &replacement, 1);
+        assert_ne!(bad_ci, wfs.ci, "ci pr-caches include: {value}");
+        let ci_probs = ci_macos_split_problems(&bad_ci);
+        assert!(
+            ci_probs.iter().any(|p| matches!(
+                p,
+                SplitProblem::ClosedForm(r)
+                    if r.file == "ci.yml"
+                        && r.place == "job pr-caches strategy.matrix"
+                        && r.kind == RefusalKind::MatrixClause
+                        && r.detail == "non-row matrix `include`"
+            )),
+            "ci pr-caches include: {value} -> {ci_probs:?}"
+        );
+
+        let bad_rel = wfs.release.replacen(release_include_block, &replacement, 1);
+        assert_ne!(bad_rel, wfs.release, "release build include: {value}");
+        let rel_probs = wfs.with_release(bad_rel).problems();
+        assert!(
+            rel_probs.iter().any(|p| matches!(
+                p,
+                SplitProblem::ClosedForm(r)
+                    if r.file == "release.yml"
+                        && r.place == "job build strategy.matrix"
+                        && r.kind == RefusalKind::MatrixClause
+                        && r.detail == "non-row matrix `include`"
+            )),
+            "release build include: {value} -> {rel_probs:?}"
         );
     }
 }

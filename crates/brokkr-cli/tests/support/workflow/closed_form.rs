@@ -14,8 +14,8 @@ use super::condition::{
 use super::{
     action_repo_match, continue_on_error_allows_failure, parse_workflow_raw, ActionMatch,
     ClosedCondition, ClosedFormRefusal, ClosedWorkflowError, Concurrency, ConditionContext,
-    EventTrigger, Inputs, Job, Matrix, Permissions, RefusalKind, RunsOn, Scalar, Step,
-    TriggerFilterKey, Verdict, Workflow, WorkflowError, WorkflowInput,
+    EventTrigger, Inputs, Job, Matrix, MatrixClauseState, Permissions, RefusalKind, RunsOn, Scalar,
+    Step, TriggerFilterKey, Verdict, Workflow, WorkflowError, WorkflowInput,
 };
 
 /// Covered-workflow jobs whose `strategy.matrix.include` rows are read and
@@ -517,7 +517,7 @@ fn validate_matrix_closed_form(
             ALLOWED_MATRIX,
         ));
     }
-    if matrix.has_exclude_key || !matrix.exclude.is_empty() {
+    if matrix.exclude_clause != MatrixClauseState::Absent || !matrix.exclude.is_empty() {
         return Err(ClosedFormRefusal::new(
             file,
             place,
@@ -526,7 +526,7 @@ fn validate_matrix_closed_form(
             ALLOWED_MATRIX,
         ));
     }
-    if matrix.has_include_key || !matrix.include.is_empty() {
+    if matrix.include_clause != MatrixClauseState::Absent || !matrix.include.is_empty() {
         let base = file_basename(file);
         let allowed = ALLOWED_MATRIX_INCLUDE_JOBS
             .iter()
@@ -537,6 +537,15 @@ fn validate_matrix_closed_form(
                 place,
                 RefusalKind::MatrixClause,
                 "matrix `include`",
+                ALLOWED_MATRIX,
+            ));
+        }
+        if matrix.include_clause == MatrixClauseState::PresentUnread {
+            return Err(ClosedFormRefusal::new(
+                file,
+                place,
+                RefusalKind::MatrixClause,
+                "non-row matrix `include`",
                 ALLOWED_MATRIX,
             ));
         }

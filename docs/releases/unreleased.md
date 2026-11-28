@@ -34,7 +34,9 @@ Changes merged since v0.16.1 that the next release's notes carry.
   operator ruling 2026-11-27). Every file under `.github/workflows/` and
   `.github/actions/` (with every path component restricted to ASCII
   `[A-Za-z0-9._-]+`, never `.` or `..`), together with `.github/renovate.json5`
-  and `.github/renovate-global.json5`, is recorded in
+  and `.github/renovate-global.json5` (which names `.github/renovate.json5` via
+  `configFileNames` so Renovate reads only the pinned repository configuration),
+  is recorded in
   `.github/workflow-digests.txt` and checked
   by the `workflow_digests` guard. Contributors editing any workflow, local
   action, or Renovate configuration must refresh `.github/workflow-digests.txt`

@@ -102,19 +102,29 @@ impl Repo {
         self.run_on(&path, script, args, env)
     }
 
-    /// Links each of the [`SYSTEM_TOOLS`] from the host `PATH` into
-    /// `sys-bin/`.
-    fn link_system_tools(&self) {
+    /// Links each named tool from the host `PATH` into `sys-bin/`, skipping
+    /// any tool already linked there.
+    fn link_host_tools(&self, tools: &[&str]) {
         let system = self.path().join("sys-bin");
         std::fs::create_dir_all(&system).expect("sys-bin");
         let host = std::env::var_os("PATH").expect("PATH");
-        for tool in SYSTEM_TOOLS {
+        for tool in tools {
+            let target = system.join(tool);
+            if target.symlink_metadata().is_ok() {
+                continue;
+            }
             let found = std::env::split_paths(&host)
                 .map(|directory| directory.join(tool))
                 .find(|candidate| candidate.is_file())
                 .unwrap_or_else(|| panic!("{tool} is not on the host PATH"));
-            std::os::unix::fs::symlink(found, system.join(tool)).expect(tool);
+            std::os::unix::fs::symlink(found, target).expect(tool);
         }
+    }
+
+    /// Links each of the [`SYSTEM_TOOLS`] from the host `PATH` into
+    /// `sys-bin/`.
+    fn link_system_tools(&self) {
+        self.link_host_tools(&SYSTEM_TOOLS);
     }
 
     /// The workspace's `script` run here with only `stub-bin/` and
@@ -1098,22 +1108,13 @@ fn the_classifier_step_is_full_off_a_pull_request_and_runs_the_bases_copy() {
     );
 }
 
+const DIGEST_SCRIPT_TOOLS: [&str; 7] = ["cat", "chmod", "cmp", "find", "mktemp", "mv", "od"];
+
 /// Link extra POSIX tools needed by `refresh-workflow-digests.sh` into
 /// `sys-bin/` without exposing host `sha256sum` or `shasum`.
 fn link_digest_script_tools(repo: &Repo) {
     repo.link_system_tools();
-    let system = repo.path().join("sys-bin");
-    let host = std::env::var_os("PATH").expect("PATH");
-    for tool in ["cat", "chmod", "cmp", "find", "mktemp", "mv", "od"] {
-        let found = std::env::split_paths(&host)
-            .map(|dir| dir.join(tool))
-            .find(|candidate| candidate.is_file())
-            .unwrap_or_else(|| panic!("{tool} is not on host PATH"));
-        let target = system.join(tool);
-        if !target.exists() {
-            std::os::unix::fs::symlink(found, target).expect(tool);
-        }
-    }
+    repo.link_host_tools(&DIGEST_SCRIPT_TOOLS);
 }
 
 /// Build a stub `shasum` or `sha256sum` script backed solely by Rust `sha2`
@@ -1184,6 +1185,14 @@ fn run_script_hermetic_with_timeout(
     }
 }
 
+fn assert_digest_check_fails_with(repo: &Repo, expected: &str, absent: &str) {
+    let out = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains(expected), "{err}");
+    assert!(!err.contains(absent), "{err}");
+}
+
 #[test]
 fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers() {
     let repo = Repo::new();
@@ -1219,9 +1228,12 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
         &stub_hasher_from_sha2(false, &initial_entries),
     );
 
-    // --check before digest file exists fails and writes nothing.
-    let missing = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
-    assert!(!missing.status.success());
+    // --check before digest file exists fails with its missing-file sentence and writes nothing.
+    assert_digest_check_fails_with(
+        &repo,
+        ".github/workflow-digests.txt is missing; run bash scripts/refresh-workflow-digests.sh",
+        "is out of date",
+    );
     assert!(!repo
         .path()
         .join(crate::workflow_digests::DIGEST_FILE)
@@ -1266,8 +1278,11 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
         "stub-bin/sha256sum",
         &stub_hasher_from_sha2(false, &edited_entries),
     );
-    let check_stale = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
-    assert!(!check_stale.status.success());
+    assert_digest_check_fails_with(
+        &repo,
+        ".github/workflow-digests.txt is out of date; run bash scripts/refresh-workflow-digests.sh",
+        "is missing",
+    );
     assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
 
     // Refresh updates it and guard passes again.

@@ -293,13 +293,22 @@ impl RunsOn {
     }
 }
 
+/// Presence and row-parse state for `strategy.matrix.include` or `exclude`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum MatrixClauseState {
+    #[default]
+    Absent,
+    Rows,
+    PresentUnread,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Matrix {
     pub(crate) axes: BTreeMap<String, Vec<Scalar>>,
     pub(crate) include: Vec<BTreeMap<String, Scalar>>,
     pub(crate) exclude: Vec<BTreeMap<String, Scalar>>,
-    pub(crate) has_include_key: bool,
-    pub(crate) has_exclude_key: bool,
+    pub(crate) include_clause: MatrixClauseState,
+    pub(crate) exclude_clause: MatrixClauseState,
     pub(crate) non_mapping: bool,
 }
 
@@ -1034,6 +1043,19 @@ fn parse_matrix_rows(
     rows.iter().map(|r| expect_scalar_map(r, row)).collect()
 }
 
+fn parse_matrix_clause(
+    node: &Yaml,
+    strict: bool,
+    seq: &'static str,
+    row: &'static str,
+) -> Result<(MatrixClauseState, Vec<BTreeMap<String, Scalar>>), WorkflowError> {
+    match parse_matrix_rows(node, seq, row) {
+        Ok(rows) => Ok((MatrixClauseState::Rows, rows)),
+        Err(err) if strict => Err(err),
+        Err(_) => Ok((MatrixClauseState::PresentUnread, Vec::new())),
+    }
+}
+
 fn parse_matrix(node: &Yaml, strict_if: bool) -> Result<Matrix, WorkflowError> {
     if !matches!(node, Yaml::Hash(_)) {
         if strict_if {
@@ -1048,14 +1070,24 @@ fn parse_matrix(node: &Yaml, strict_if: bool) -> Result<Matrix, WorkflowError> {
     for (k, v) in expect_map(node, "strategy.matrix")? {
         match k {
             "include" => {
-                matrix.has_include_key = true;
-                matrix.include =
-                    parse_matrix_rows(v, "strategy.matrix.include", "strategy.matrix.include row")?
+                let (state, rows) = parse_matrix_clause(
+                    v,
+                    strict_if,
+                    "strategy.matrix.include",
+                    "strategy.matrix.include row",
+                )?;
+                matrix.include_clause = state;
+                matrix.include = rows;
             }
             "exclude" => {
-                matrix.has_exclude_key = true;
-                matrix.exclude =
-                    parse_matrix_rows(v, "strategy.matrix.exclude", "strategy.matrix.exclude row")?
+                let (state, rows) = parse_matrix_clause(
+                    v,
+                    strict_if,
+                    "strategy.matrix.exclude",
+                    "strategy.matrix.exclude row",
+                )?;
+                matrix.exclude_clause = state;
+                matrix.exclude = rows;
             }
             _ => {
                 let Yaml::Array(items) = v else {

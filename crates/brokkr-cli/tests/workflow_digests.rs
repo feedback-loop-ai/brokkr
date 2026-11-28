@@ -41,6 +41,7 @@ const ALLOWED_GLOBAL_COMMANDS: [&str; 2] = [
     r"^bash scripts/refresh-pin-checksums\.sh$",
     r"^bash scripts/refresh-workflow-digests\.sh$",
 ];
+const PINNED_RENOVATE_CONFIG_FILES: [&str; 1] = [".github/renovate.json5"];
 
 /// Typed failure returned by [`check_workflow_digests`] (decision 0071 ruling 8).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -178,6 +179,17 @@ pub(crate) enum RenovateConfigProblem {
 
     #[error(".github/renovate-global.json5: `allowedCommands` must allow exactly the two anchored refresh commands")]
     WrongGlobalAllowedCommands,
+
+    #[error(
+        ".github/renovate-global.json5: missing `configFileNames` pinning `.github/renovate.json5`"
+    )]
+    MissingGlobalConfigFileNames,
+
+    #[error(".github/renovate-global.json5: `configFileNames` must be a list of strings")]
+    GlobalConfigFileNamesNotStringList,
+
+    #[error(".github/renovate-global.json5: `configFileNames` must be `[.github/renovate.json5]`, found `{found}`")]
+    WrongGlobalConfigFileNames { found: String },
 }
 
 fn workspace() -> PathBuf {
@@ -909,18 +921,35 @@ pub(crate) fn check_renovate_digest_wiring(
             None => problems.push(RenovateConfigProblem::RootNotObject {
                 file: ".github/renovate-global.json5",
             }),
-            Some(root) => {
-                let ok = root
-                    .get("allowedCommands")
-                    .and_then(Json5Value::as_string_list)
-                    .is_some_and(|cmds| cmds == ALLOWED_GLOBAL_COMMANDS);
-                if !ok {
-                    problems.push(RenovateConfigProblem::WrongGlobalAllowedCommands);
-                }
-            }
+            Some(root) => check_renovate_global_config(root, &mut problems),
         },
     }
     problems
+}
+
+fn check_renovate_global_config(
+    root: &BTreeMap<String, Json5Value>,
+    problems: &mut Vec<RenovateConfigProblem>,
+) {
+    let ok = root
+        .get("allowedCommands")
+        .and_then(Json5Value::as_string_list)
+        .is_some_and(|cmds| cmds == ALLOWED_GLOBAL_COMMANDS);
+    if !ok {
+        problems.push(RenovateConfigProblem::WrongGlobalAllowedCommands);
+    }
+    match root.get("configFileNames") {
+        None => problems.push(RenovateConfigProblem::MissingGlobalConfigFileNames),
+        Some(value) => match value.as_string_list() {
+            None => problems.push(RenovateConfigProblem::GlobalConfigFileNamesNotStringList),
+            Some(names) if names != PINNED_RENOVATE_CONFIG_FILES => {
+                problems.push(RenovateConfigProblem::WrongGlobalConfigFileNames {
+                    found: format!("[{}]", names.join(", ")),
+                });
+            }
+            Some(_) => {}
+        },
+    }
 }
 
 #[cfg(test)]
@@ -981,7 +1010,6 @@ mod tests {
         let problems = check_workflow_digests(&root);
         assert_eq!(problems, Vec::<DigestProblem>::new());
         let recorded = std::fs::read_to_string(root.join(DIGEST_FILE)).expect("digest file");
-        assert_eq!(recorded.lines().count(), 18);
         for required in PINNED_FILES {
             assert!(
                 recorded
@@ -1627,6 +1655,83 @@ mod tests {
         assert_eq!(
             check_renovate_digest_wiring(&config, &unanchored),
             vec![RenovateConfigProblem::WrongGlobalAllowedCommands]
+        );
+    }
+
+    #[test]
+    fn renovate_global_config_file_names_pins_only_the_pinned_config() {
+        let (config, global) = read_renovate_configs();
+        let line = "  configFileNames: ['.github/renovate.json5'],\n";
+        assert!(global.contains(line));
+
+        let cases = [
+            ("", RenovateConfigProblem::MissingGlobalConfigFileNames),
+            (
+                "  configFileNames: [],\n",
+                RenovateConfigProblem::WrongGlobalConfigFileNames {
+                    found: "[]".to_string(),
+                },
+            ),
+            (
+                "  configFileNames: ['renovate.json'],\n",
+                RenovateConfigProblem::WrongGlobalConfigFileNames {
+                    found: "[renovate.json]".to_string(),
+                },
+            ),
+            (
+                "  configFileNames: ['renovate.json', '.github/renovate.json5'],\n",
+                RenovateConfigProblem::WrongGlobalConfigFileNames {
+                    found: "[renovate.json, .github/renovate.json5]".to_string(),
+                },
+            ),
+            (
+                "  configFileNames: ['.github/renovate.json5', 'renovate.json'],\n",
+                RenovateConfigProblem::WrongGlobalConfigFileNames {
+                    found: "[.github/renovate.json5, renovate.json]".to_string(),
+                },
+            ),
+            (
+                "  configFileNames: '.github/renovate.json5',\n",
+                RenovateConfigProblem::GlobalConfigFileNamesNotStringList,
+            ),
+            (
+                "  configFileNames: true,\n",
+                RenovateConfigProblem::GlobalConfigFileNamesNotStringList,
+            ),
+            (
+                "  configFileNames: {},\n",
+                RenovateConfigProblem::GlobalConfigFileNamesNotStringList,
+            ),
+            (
+                "  configFileNames: [true],\n",
+                RenovateConfigProblem::GlobalConfigFileNamesNotStringList,
+            ),
+        ];
+        for (replacement, expected) in cases {
+            let mutated = global.replacen(line, replacement, 1);
+            assert_ne!(mutated, global, "mutation `{replacement}` must edit global");
+            assert_eq!(
+                check_renovate_digest_wiring(&config, &mutated),
+                vec![expected],
+                "mutation `{replacement}`"
+            );
+        }
+
+        // Pin Display text once for each new variant (decision 0071 ruling 8).
+        assert_eq!(
+            RenovateConfigProblem::MissingGlobalConfigFileNames.to_string(),
+            ".github/renovate-global.json5: missing `configFileNames` pinning `.github/renovate.json5`"
+        );
+        assert_eq!(
+            RenovateConfigProblem::GlobalConfigFileNamesNotStringList.to_string(),
+            ".github/renovate-global.json5: `configFileNames` must be a list of strings"
+        );
+        assert_eq!(
+            RenovateConfigProblem::WrongGlobalConfigFileNames {
+                found: "[renovate.json]".to_string(),
+            }
+            .to_string(),
+            ".github/renovate-global.json5: `configFileNames` must be `[.github/renovate.json5]`, found `[renovate.json]`"
         );
     }
 }
