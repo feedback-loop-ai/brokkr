@@ -147,6 +147,10 @@ impl Inputs {
     pub(crate) fn keys(&self) -> impl Iterator<Item = &str> {
         self.entries.keys().map(String::as_str)
     }
+
+    pub(crate) fn values(&self) -> impl Iterator<Item = &Scalar> {
+        self.entries.values()
+    }
 }
 
 /// Result of comparing a parsed `uses:` reference against `<owner>/<repo>`.
@@ -338,7 +342,7 @@ pub(crate) struct Matrix {
     pub(crate) exclude: Vec<BTreeMap<String, Scalar>>,
     pub(crate) include_clause: MatrixClauseState,
     pub(crate) exclude_clause: MatrixClauseState,
-    pub(crate) non_mapping: bool,
+    pub(crate) shape_issues: Vec<String>,
 }
 
 impl Matrix {
@@ -1169,23 +1173,36 @@ fn parse_matrix_clause(
     }
 }
 
-fn parse_matrix(node: &Yaml, strict_if: bool) -> Result<Matrix, WorkflowError> {
-    if !matches!(node, Yaml::Hash(_)) {
-        if strict_if {
+fn parse_matrix(node: &Yaml, strict: bool) -> Result<Matrix, WorkflowError> {
+    let Yaml::Hash(map) = node else {
+        if strict {
             return Err(WorkflowError::NotAMapping("strategy.matrix"));
         }
         return Ok(Matrix {
-            non_mapping: true,
+            shape_issues: vec![format!(
+                "{} `strategy.matrix`",
+                Scalar::from_yaml(node).kind_label()
+            )],
             ..Matrix::default()
         });
-    }
+    };
     let mut matrix = Matrix::default();
-    for (k, v) in expect_map(node, "strategy.matrix")? {
+    for (raw_k, v) in map {
+        let Some(k) = raw_k.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("strategy.matrix"));
+            }
+            matrix.shape_issues.push(format!(
+                "{} key in `strategy.matrix`",
+                Scalar::from_yaml(raw_k).kind_label()
+            ));
+            continue;
+        };
         match k {
             "include" => {
                 let (state, rows) = parse_matrix_clause(
                     v,
-                    strict_if,
+                    strict,
                     "strategy.matrix.include",
                     "strategy.matrix.include row",
                 )?;
@@ -1195,21 +1212,29 @@ fn parse_matrix(node: &Yaml, strict_if: bool) -> Result<Matrix, WorkflowError> {
             "exclude" => {
                 let (state, rows) = parse_matrix_clause(
                     v,
-                    strict_if,
+                    strict,
                     "strategy.matrix.exclude",
                     "strategy.matrix.exclude row",
                 )?;
                 matrix.exclude_clause = state;
                 matrix.exclude = rows;
             }
-            _ => {
-                let Yaml::Array(items) = v else {
+            _ => match v {
+                Yaml::Array(items) => {
+                    matrix
+                        .axes
+                        .insert(k.to_string(), items.iter().map(Scalar::from_yaml).collect());
+                }
+                _ if strict => {
                     return Err(WorkflowError::NotASequence("strategy.matrix axis"));
-                };
-                matrix
-                    .axes
-                    .insert(k.to_string(), items.iter().map(Scalar::from_yaml).collect());
-            }
+                }
+                other => {
+                    matrix.shape_issues.push(format!(
+                        "{} value for matrix axis `{k}`",
+                        Scalar::from_yaml(other).kind_label()
+                    ));
+                }
+            },
         }
     }
     Ok(matrix)

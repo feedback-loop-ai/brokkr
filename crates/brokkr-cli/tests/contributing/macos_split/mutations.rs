@@ -89,14 +89,14 @@ fn pull_request_path_replaces_macos_shards_with_macos_build() {
         }
     ));
 
-    let key_macos = ci.replacen(
-        "  engine:\n    name: test (ubuntu-latest)\n",
-        "  engine:\n    name: test (ubuntu-latest)\n    env:\n      MACOS_HOST: '1'\n",
+    let engine_macos = ci.replacen(
+        "  engine:\n    name: test (ubuntu-latest)\n    needs: [classify, docs-lane, engine-machines]\n    if: always() && github.event_name != 'push'\n    runs-on: ubuntu-24.04\n",
+        "  engine:\n    name: test (ubuntu-latest)\n    needs: [classify, docs-lane, engine-machines]\n    if: always() && github.event_name != 'push'\n    runs-on: macos-latest\n",
         1,
     );
-    assert_ne!(key_macos, ci);
+    assert_ne!(engine_macos, ci);
     assert_eq!(
-        ci_macos_split_problems(&key_macos),
+        ci_macos_split_problems(&engine_macos),
         vec![SplitProblem::CiJobMentionsMacos {
             job_id: "engine".to_string(),
         }]
@@ -653,6 +653,7 @@ fn contributing_records_macos_build_handoff_and_shard_schedule() {
         "`ci.yml`'s `pr-caches` and `release.yml`'s `build`",
         "`.github/workflow-digests.txt`",
         "`bash scripts/refresh-workflow-digests.sh`",
+        "the reader's own error naming the construct",
         "What the guards do not read:",
     ] {
         assert!(

@@ -178,6 +178,10 @@ impl ClosedJob {
         self.raw.uses.as_deref()
     }
 
+    pub(crate) fn with(&self) -> Option<&Inputs> {
+        self.raw.with.as_ref()
+    }
+
     pub(crate) fn with_value(&self, key: &str) -> Option<&Scalar> {
         self.raw.with.as_ref()?.get(key)
     }
@@ -192,10 +196,6 @@ impl ClosedJob {
 
     pub(crate) fn matrix(&self) -> Option<&Matrix> {
         self.raw.matrix.as_ref()
-    }
-
-    pub(crate) fn all_scalars(&self) -> &[String] {
-        &self.raw.all_scalars
     }
 
     /// Evaluates job and step conditions without masking refusals behind
@@ -610,12 +610,12 @@ fn validate_matrix_closed_form(
     matrix: &Matrix,
 ) -> Result<(), ClosedFormRefusal> {
     let place = format!("job {job_id} strategy.matrix");
-    if matrix.non_mapping {
+    if let Some(detail) = matrix.shape_issues.first() {
         return Err(ClosedFormRefusal::new(
             file,
             place,
             RefusalKind::MatrixClause,
-            "non-mapping `strategy.matrix`",
+            detail,
             ALLOWED_MATRIX,
         ));
     }
