@@ -628,20 +628,27 @@ fn l3_l5_unconfirmed_rejoin_puts_kept_state_back_and_confirmed_model_substitutio
     let wrong_model = format!(
         "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":{{\"model\":\"other-model\"}}}}\n"
     );
-    for (label, stream, expected_launch, expect_refusal, keep_old) in [
+    let expected_substituted = crate::adapters::refusal::refusal_reason(
+        "model_substituted",
+        None,
+        Some(&format!(
+            "the seat pinned \"{FLASH}\" and agy served \"other-model\""
+        )),
+    );
+    for (label, stream, expected_launch, expected_refusal, keep_old) in [
         (
             "invalid-id-in-init",
             invalid.as_str(),
             LaunchTerminal::Unconfirmed,
-            false,
+            None,
             true,
         ),
-        ("no-init-row", "", LaunchTerminal::Unconfirmed, false, true),
+        ("no-init-row", "", LaunchTerminal::Unconfirmed, None, true),
         (
             "model-substituted",
             wrong_model.as_str(),
             LaunchTerminal::Resumed,
-            true,
+            Some(expected_substituted),
             false,
         ),
     ] {
@@ -649,7 +656,7 @@ fn l3_l5_unconfirmed_rejoin_puts_kept_state_back_and_confirmed_model_substitutio
         let spec = FakeAgySpec::turn(UUID_A, stream, Some("mutated-db"), ("note.txt", "mutated"));
         let (inv, emitted) = drive_offer(&mut world, &spec, &input, Some(UUID_A), &[]);
         assert_eq!(inv.launch, expected_launch, "{label}");
-        assert_eq!(inv.refusal.is_some(), expect_refusal, "{label}");
+        assert_eq!(inv.refusal, expected_refusal, "{label}");
         assert!(started_row(&emitted).is_none(), "{label}");
         if keep_old {
             assert_eq!(

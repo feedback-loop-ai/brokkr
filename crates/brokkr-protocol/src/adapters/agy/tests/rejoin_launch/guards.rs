@@ -2,7 +2,7 @@
 //! databases, launch-row masking preflight, and closed `owned_target` (#1227).
 
 use super::*;
-use crate::adapters::agy::fold::{Event, Failed, Failure, Verdict};
+use crate::adapters::agy::fold::{unconfirmed, Event, Failed, Failure, Seen, Verdict};
 use crate::adapters::agy::rejoin::keep_rejoin;
 use crate::adapters::agy::restore::check_owned_target;
 
@@ -560,10 +560,7 @@ fn v1_one_key_object_event_leaves_rejoin_unconfirmed_and_passes_over_cold() {
     let (verdict, _, _, pinned, _, _) =
         fold_lines(cold_hold_new(), &[obj_init.as_str(), ok_res.trim_end()]);
     assert!(!pinned);
-    let Verdict::Refused(refusal) = verdict else {
-        panic!("expected model_unconfirmed refusal, got {verdict:?}");
-    };
-    assert!(refusal.words().starts_with("model_unconfirmed:"));
+    assert_eq!(verdict, Verdict::Refused(success_unconfirmed()));
 }
 
 #[test]
@@ -668,10 +665,11 @@ fn v2_explicit_null_matches_absence_for_admitted_optional_members() {
             !p_abs && !p_null,
             "{mode} init.model must leave pin unconfirmed"
         );
-        let Verdict::Refused(refusal) = v_null else {
-            panic!("{mode}: expected model_unconfirmed, got {v_null:?}");
-        };
-        assert!(refusal.words().starts_with("model_unconfirmed:"));
+        assert_eq!(
+            v_null,
+            Verdict::Refused(success_unconfirmed()),
+            "{mode} init.model null"
+        );
 
         let res_turns_null =
             r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","num_turns":null}}"#;
@@ -880,5 +878,52 @@ fn v2_wrong_type_string_members_fail_unread() {
             LaunchTerminal::Unconfirmed,
             "rejoin-init-model-{slabel}"
         );
+    }
+}
+
+fn success_unconfirmed() -> crate::PreSessionRefusal {
+    unconfirmed(
+        FLASH,
+        &[],
+        &Seen {
+            status: Some("SUCCESS".into()),
+            timed_out: false,
+        },
+    )
+}
+
+#[test]
+fn confirmed_rejoin_with_absent_or_null_init_model_refuses_unconfirmed_and_drops_kept_copy() {
+    let ok_res = r#"{"event":"result","result":{"status":"SUCCESS","response":"OK"}}"#;
+    let init_absent = format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{}}}}"#);
+    let init_null =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":null}}}}"#);
+    let expected_refusal = success_unconfirmed();
+    for (label, init_line) in [
+        ("absent-model", init_absent.as_str()),
+        ("null-model", init_null.as_str()),
+    ] {
+        let stream = format!("{init_line}\n{ok_res}\n");
+        let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
+        let spec = FakeAgySpec::turn(UUID_A, &stream, Some("mutated-db"), ("note.txt", "mutated"));
+        let (inv, emitted) = drive_offer(&mut world, &spec, &input, Some(UUID_A), &[]);
+        assert!(
+            !conv.join(REJOIN_DIR).exists(),
+            "{label}: older kept rejoin/ must not return to live path"
+        );
+        let aside_left: Vec<_> = std::fs::read_dir(&conv)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".rejoin.aside."))
+            .collect();
+        assert!(
+            aside_left.is_empty(),
+            "{label}: set-aside copy must be removed, found {aside_left:?}"
+        );
+        assert_eq!(inv.launch, LaunchTerminal::Resumed, "{label}");
+        assert_eq!(inv.refusal, Some(expected_refusal.clone()), "{label}");
+        assert!(inv.answer.is_none(), "{label}");
+        assert!(started_row(&emitted).is_none(), "{label}");
+        assert_lock_free(&conv);
     }
 }

@@ -825,8 +825,10 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   every recorded stream writes strings, so this refuses nothing measured. Where
   a stdout member's absence is admitted (`init.model`, `result.num_turns`, and
   `result.error`), an explicit `null` reads as absence and yields the same
-  verdict (so a rejoin whose first line writes `init.model: null` leaves the
-  model pin unconfirmed just as an omitted `model` does); by contrast, an
+  verdict (so on a rejoin, a first `init` line naming the offered conversation
+  with `init.model: null` confirms the conversation and leaves the model pin
+  unconfirmed just as an omitted `model` does, and the live-path rule's "pin not
+  confirmed" case applies); by contrast, an
   explicit `null` in the place of `step_update.usage` on a rejoin (the turn's
   sole source of use) or in the place of a defaulted member (`result.response`,
   `result.usage`, `result.denied_actions`, or a token count in `usage`) leaves
