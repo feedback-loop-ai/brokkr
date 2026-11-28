@@ -954,17 +954,22 @@ fn wire_transaction_tracks_tx_status_begin_self_rollback_and_unwind_poison() {
         h_u.join().unwrap();
     }
 
-    // 4. ROLLBACK returning non-'I' status poisons the connection.
-    let (mut c_rbb, h_rb_bad) = spawn_tx_single_reply(true, b"ROLLBACK\0", b"T");
-    assert!(matches!(
-        c_rbb.in_transaction(|_| Err::<(), PgError>(PgError::EmptyWorkerId), |e| e),
-        Err(PgError::EmptyWorkerId)
-    ));
-    assert!(matches!(
-        c_rbb.query("SELECT 1", &[]),
-        Err(PgError::ConnectionClosed)
-    ));
-    h_rb_bad.join().unwrap();
+    // 4. ROLLBACK returning non-'I' status or non-ROLLBACK tag poisons the connection.
+    for (tag, status) in [
+        (&b"ROLLBACK\0"[..], &b"T"[..]),
+        (&b"SELECT 1\0"[..], &b"I"[..]),
+    ] {
+        let (mut c_rbb, h_rb_bad) = spawn_tx_single_reply(true, tag, status);
+        assert!(matches!(
+            c_rbb.in_transaction(|_| Err::<(), PgError>(PgError::EmptyWorkerId), |e| e),
+            Err(PgError::EmptyWorkerId)
+        ));
+        assert!(matches!(
+            c_rbb.query("SELECT 1", &[]),
+            Err(PgError::ConnectionClosed)
+        ));
+        h_rb_bad.join().unwrap();
+    }
 }
 
 #[test]
@@ -1125,6 +1130,95 @@ fn wire_transaction_compromise_overrides_callback_error_while_preserving_ordinar
     assert_eq!(ord_err.sqlstate(), Some("22012"));
     drop(c_ord);
     h_ord.join().unwrap();
+}
+
+#[test]
+fn wire_rejects_mixed_error_and_post_completion_row_frames() {
+    for frames in [
+        vec![
+            (b'C', b"COMMIT\0".to_vec()),
+            (b'E', error_payload("40001", "boom", None)),
+            (b'Z', b"E".to_vec()),
+        ],
+        vec![
+            (b'E', error_payload("40001", "boom", None)),
+            (b'C', b"SELECT 1\0".to_vec()),
+            (b'Z', b"I".to_vec()),
+        ],
+        vec![
+            (b'E', error_payload("40001", "first", None)),
+            (b'E', error_payload("40001", "second", None)),
+            (b'Z', b"I".to_vec()),
+        ],
+        vec![
+            (b'T', row_description_payload(1)),
+            (b'T', row_description_payload(1)),
+            (b'Z', b"I".to_vec()),
+        ],
+        vec![
+            (b'C', b"SELECT 0\0".to_vec()),
+            (b'T', row_description_payload(1)),
+            (b'Z', b"I".to_vec()),
+        ],
+        vec![
+            (b'T', row_description_payload(1)),
+            (b'C', b"SELECT 1\0".to_vec()),
+            (b'D', data_row_payload(&[Some("a")])),
+            (b'Z', b"I".to_vec()),
+        ],
+    ] {
+        assert_query_protocol_error_poisons(frames);
+    }
+}
+
+#[test]
+fn wire_tx_rejects_active_status_after_error_and_preserves_compromise_on_close() {
+    // 1. Inside in_transaction, ErrorResponse followed by ReadyForQuery('T') poisons socket.
+    let (p_err_t, h_err_t) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        let _ = read_extended_query(&mut s);
+        send_frame(&mut s, b'E', &error_payload("22012", "still active", None));
+        send_frame(&mut s, b'Z', b"T");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_err_t = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_err_t}/db")).unwrap();
+    let mut c_err_t = PgClient::connect(&cfg_err_t).expect("connect");
+    assert!(matches!(
+        c_err_t.in_transaction(|tx| tx.query("SELECT 1/0", &[]).map(|_| ()), |e| e),
+        Err(PgError::Protocol(_))
+    ));
+    assert!(matches!(
+        c_err_t.query("SELECT 1", &[]),
+        Err(PgError::ConnectionClosed)
+    ));
+    h_err_t.join().unwrap();
+
+    // 2. Mid-callback EOF (close()) after COMMIT+'I' must NOT clear tx_compromised.
+    let (p_eof, h_eof) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        expect_query_reply(&mut s, "COMMIT", b"COMMIT\0", b"I");
+        let _ = read_extended_query(&mut s);
+    });
+    let cfg_eof = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_eof}/db")).unwrap();
+    let mut c_eof = PgClient::connect(&cfg_eof).expect("connect");
+    let eof_err = c_eof
+        .in_transaction(
+            |tx| {
+                tx.query("COMMIT", &[])?;
+                assert!(matches!(tx.query("SELECT 1", &[]), Err(PgError::Io(_))));
+                Err::<(), PgError>(PgError::EmptyWorkerId)
+            },
+            |e| e,
+        )
+        .unwrap_err();
+    assert!(matches!(eof_err, PgError::TransactionAborted));
+    assert!(matches!(
+        c_eof.query("SELECT 1", &[]),
+        Err(PgError::ConnectionClosed)
+    ));
+    h_eof.join().unwrap();
 }
 
 #[test]

@@ -308,6 +308,9 @@ fn exec_sql(
         }
         return Ok((vec![], "CREATE INDEX".into()));
     }
+    if norm.starts_with("DROP INDEX") {
+        return Ok((vec![], "DROP INDEX".into()));
+    }
     if norm.starts_with("CREATE TABLE") {
         return Ok((vec![], "CREATE TABLE".into()));
     }

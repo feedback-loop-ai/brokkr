@@ -801,16 +801,24 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
         assert!(!db.schema_meta.contains_key("coordination"));
     }
 
-    // Projection schema installs no redundant secondary indexes (list_runs sorts in Rust).
+    // Projection schema installs no redundant secondary indexes (list_runs sorts in Rust)
+    // and drops the legacy brokkr_projected_runs_created_idx on reconnect to v3 databases.
     let srv_proj_idx = MockPgServer::start();
-    let _proj = PgProjectionStore::connect(&srv_proj_idx.config()).unwrap();
-    assert!(srv_proj_idx
+    srv_proj_idx
         .db
         .lock()
         .unwrap()
-        .queries
-        .iter()
-        .all(|q| !q.starts_with("CREATE INDEX")));
+        .schema_meta
+        .insert("projection".into(), crate::schema::CURRENT_SCHEMA_VERSION);
+    let _proj = PgProjectionStore::connect(&srv_proj_idx.config()).unwrap();
+    {
+        let db = srv_proj_idx.db.lock().unwrap();
+        assert!(db.queries.iter().all(|q| !q.starts_with("CREATE INDEX")));
+        assert!(db
+            .queries
+            .iter()
+            .any(|q| q == "DROP INDEX IF EXISTS brokkr_projected_runs_created_idx"));
+    }
 
     // Wrong column data_type, non-nullable JSONB mirror, or nullable canonical TEXT must fail.
     for (table, col, dtype, nullable) in [

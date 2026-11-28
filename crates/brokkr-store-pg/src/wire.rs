@@ -261,7 +261,10 @@ impl PgClient {
     }
 
     fn rollback_transaction(&mut self) {
-        if self.query_raw("ROLLBACK", &[]).is_err() || self.tx_status != b'I' {
+        if !matches!(
+            self.query_raw("ROLLBACK", &[]),
+            Ok(raw) if raw.command_tag.as_deref() == Some("ROLLBACK") && self.tx_status == b'I'
+        ) {
             self.close();
         }
     }
@@ -269,7 +272,6 @@ impl PgClient {
     fn close(&mut self) {
         self.stream = None;
         self.in_tx = false;
-        self.tx_compromised = false;
     }
 
     fn write_all(&mut self, data: &[u8]) -> Result<(), PgError> {
@@ -425,6 +427,11 @@ impl PgClient {
         };
         self.tx_status = ready_status;
         Ok(match state.server_err {
+            Some(_) if self.in_tx && ready_status == b'T' => {
+                return Err(PgError::Protocol(
+                    "server reported active transaction ('T') after ErrorResponse".into(),
+                ));
+            }
             Some(err) => Err(err),
             None => Ok(RawQueryResult {
                 result: QueryResult {
@@ -476,9 +483,7 @@ struct QueryReadState {
 impl QueryReadState {
     fn mark_completed(&mut self) -> Result<(), PgError> {
         if self.completed {
-            return Err(PgError::Protocol(
-                "duplicate query completion before ReadyForQuery".into(),
-            ));
+            return Err(PgError::Protocol("duplicate query completion".into()));
         }
         self.completed = true;
         Ok(())
@@ -488,9 +493,35 @@ impl QueryReadState {
         self.mark_completed()?;
         if !body.is_empty() {
             return Err(PgError::Protocol(format!(
-                "non-empty EmptyQueryResponse payload ({} bytes)",
+                "non-empty EmptyQuery ({} bytes)",
                 body.len()
             )));
+        }
+        Ok(None)
+    }
+
+    fn apply_row_description(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+        if self.completed || self.expected_cols.is_some() {
+            return Err(PgError::Protocol("unexpected RowDescription frame".into()));
+        }
+        self.expected_cols = Some(parse_row_description(body)?);
+        Ok(None)
+    }
+
+    fn apply_data_row(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+        if self.completed {
+            return Err(PgError::Protocol("DataRow after completion".into()));
+        }
+        let row = parse_data_row(body)?;
+        match self.expected_cols {
+            Some(want) if row.columns.len() == want => self.rows.push(row),
+            Some(want) => {
+                return Err(PgError::Protocol(format!(
+                    "DataRow column count {} != RowDescription count {want}",
+                    row.columns.len()
+                )));
+            }
+            None => return Err(PgError::Protocol("DataRow without RowDescription".into())),
         }
         Ok(None)
     }
@@ -503,48 +534,30 @@ impl QueryReadState {
         Ok(None)
     }
 
+    fn apply_error(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+        self.mark_completed()?;
+        self.server_err = Some(parse_error_response(body));
+        Ok(None)
+    }
+
+    fn apply_ready(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+        let status = parse_ready_for_query(body)?;
+        if !self.completed {
+            return Err(PgError::Protocol("premature ReadyForQuery".into()));
+        }
+        Ok(Some(status))
+    }
+
     fn apply_frame(&mut self, tag: u8, body: &[u8]) -> Result<Option<u8>, PgError> {
         match tag {
             b'1' | b'2' | b't' | b'n' | b'S' | b'N' => Ok(None),
             b'I' => self.apply_empty_query(body),
-            b'T' => {
-                self.expected_cols = Some(parse_row_description(body)?);
-                Ok(None)
-            }
-            b'D' => {
-                let row = parse_data_row(body)?;
-                match self.expected_cols {
-                    Some(want) if row.columns.len() == want => {
-                        self.rows.push(row);
-                        Ok(None)
-                    }
-                    Some(want) => Err(PgError::Protocol(format!(
-                        "DataRow column count {} does not match RowDescription count {want}",
-                        row.columns.len()
-                    ))),
-                    None => Err(PgError::Protocol(
-                        "received DataRow without RowDescription".into(),
-                    )),
-                }
-            }
+            b'T' => self.apply_row_description(body),
+            b'D' => self.apply_data_row(body),
             b'C' => self.apply_command_complete(body),
-            b'E' => {
-                self.server_err = Some(parse_error_response(body));
-                self.completed = true;
-                Ok(None)
-            }
-            b'Z' => {
-                let status = parse_ready_for_query(body)?;
-                if !self.completed {
-                    return Err(PgError::Protocol(
-                        "premature ReadyForQuery before query completion".into(),
-                    ));
-                }
-                Ok(Some(status))
-            }
-            other => Err(PgError::Protocol(format!(
-                "unexpected query message tag 0x{other:02x}"
-            ))),
+            b'E' => self.apply_error(body),
+            b'Z' => self.apply_ready(body),
+            other => Err(PgError::Protocol(format!("unexpected tag 0x{other:02x}"))),
         }
     }
 }
@@ -691,11 +704,6 @@ fn parse_column_descriptor(body: &[u8], offset: &mut usize) -> Result<(), PgErro
     let desc = body
         .get(*offset..*offset + 18)
         .ok_or_else(|| PgError::Protocol("truncated RowDescription column descriptor".into()))?;
-    let _table_oid = i32::from_be_bytes([desc[0], desc[1], desc[2], desc[3]]);
-    let _col_attr = i16::from_be_bytes([desc[4], desc[5]]);
-    let _type_oid = i32::from_be_bytes([desc[6], desc[7], desc[8], desc[9]]);
-    let _type_size = i16::from_be_bytes([desc[10], desc[11]]);
-    let _type_mod = i32::from_be_bytes([desc[12], desc[13], desc[14], desc[15]]);
     let format_code = i16::from_be_bytes([desc[16], desc[17]]);
     if format_code != 0 {
         return Err(PgError::Protocol(format!(
