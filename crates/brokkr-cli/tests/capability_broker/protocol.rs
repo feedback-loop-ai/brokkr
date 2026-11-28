@@ -387,6 +387,18 @@ impl Talk {
         String::from_utf8_lossy(&said.unwrap_or_default()).into_owned()
     }
 
+    /// Fail for `why` as soon as the broker exits, giving the stderr reader
+    /// time to drain the pipe.
+    pub(super) fn fail_if_ended(&mut self, why: &str) {
+        if self.child.try_wait().unwrap().is_some() {
+            if let Some((_, ending)) = &self.errors {
+                // Bound the drain in case a descendant still holds the pipe.
+                let _ = ending.recv_timeout(Duration::from_secs(1));
+            }
+            self.failed(why);
+        }
+    }
+
     /// The test failed for `why`, naming the broker's status, it and its
     /// children killed first where it still runs, and its standard error
     /// so far (the review of U6f1b's seventh run).

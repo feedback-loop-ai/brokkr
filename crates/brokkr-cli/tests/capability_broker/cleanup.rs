@@ -13,9 +13,9 @@
 //! guarantee: a descendant that leaves the group is #403's residual.
 
 use std::collections::BTreeMap;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::ledger::{Disposition, Failure, Invalid, Outcome};
@@ -115,15 +115,16 @@ struct Held {
 }
 
 impl Held {
-    /// The attempt below `harness` once its server has a child of its own
-    /// running `child`, looked at until the suite's wait for a broker
-    /// ([`TALK_MAX`]) has passed since the call, made as the broker starts
-    /// where no answer is awaited first: past the startup's deadline that
-    /// bounds the box's start, and so the server's, however loaded the host.
-    fn seen(harness: i32, child: &str) -> Held {
+    /// The attempt below the broker once its server has a child of its own
+    /// running `child`. Wait until the broker ends or [`TALK_MAX`] passes,
+    /// past the startup deadline that bounds the box's start and so the
+    /// server's.
+    fn seen(talk: &mut Talk, child: &str) -> Held {
+        let harness = talk.id() as i32;
         let until = Instant::now() + TALK_MAX;
         let named = |pid: &i32| arguments(*pid).first().is_some_and(|arg| arg == child);
         let running = loop {
+            talk.fail_if_ended("the broker ended before its server's child ran");
             let members = descendants(harness);
             if let Some(running) = members.iter().copied().find(named) {
                 break running;
@@ -198,9 +199,9 @@ impl Live {
         command.process_group(0).env("TMPDIR", &scratch);
         command.stdin(Stdio::piped()).stdout(Stdio::piped());
         let child = command.stderr(Stdio::piped()).spawn().unwrap();
-        let talk = Talk::over(child, (&greeting(), answers), TALK_MAX);
+        let mut talk = Talk::over(child, (&greeting(), answers), TALK_MAX);
         let harness = talk.id() as i32;
-        let held = Held::seen(harness, "sleep");
+        let held = Held::seen(&mut talk, "sleep");
         let live = Live {
             sealed,
             scratch,
@@ -281,6 +282,27 @@ fn gone(pid: i32) -> bool {
 fn kill(pid: i32) {
     let pid = rustix::process::Pid::from_raw(pid).unwrap();
     rustix::process::kill_process(pid, rustix::process::Signal::KILL).unwrap();
+}
+
+#[test]
+fn an_early_broker_end_reports_its_status_and_stderr_without_waiting_for_a_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let begun = Instant::now();
+    let result = std::panic::catch_unwind(|| Live::started(&dir, "exit 3\n", 0));
+    let taken = begun.elapsed();
+    let message = match result {
+        Ok(None) => return,
+        Ok(Some(_)) => panic!("the server that exited was seen running a child"),
+        Err(payload) => payload.downcast::<String>().unwrap(),
+    };
+    let (_, cause) = ended(Failure::Protocol);
+    let expected = format!(
+        "the broker ended before its server's child ran: {:?}\n{cause}",
+        ExitStatus::from_raw(256)
+    );
+    assert_eq!(*message, expected);
+    // The deadline starts after `begun`, so waiting it out takes at least `TALK_MAX`.
+    assert!(taken < TALK_MAX, "{taken:?}");
 }
 
 #[test]
