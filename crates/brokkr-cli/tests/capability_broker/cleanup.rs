@@ -13,9 +13,9 @@
 //! guarantee: a descendant that leaves the group is #403's residual.
 
 use std::collections::BTreeMap;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::ledger::{Disposition, Failure, Invalid, Outcome};
@@ -297,10 +297,12 @@ fn an_early_broker_end_reports_its_status_and_stderr_without_waiting_for_a_child
     };
     let (_, cause) = ended(Failure::Protocol);
     let expected = format!(
-        "the broker ended before its server's child ran: ExitStatus(unix_wait_status(256))\n{cause}"
+        "the broker ended before its server's child ran: {:?}\n{cause}",
+        ExitStatus::from_raw(256)
     );
     assert_eq!(*message, expected);
-    assert!(taken < Duration::from_secs(5), "{taken:?}");
+    // The deadline starts after `begun`, so waiting it out takes at least `TALK_MAX`.
+    assert!(taken < TALK_MAX, "{taken:?}");
 }
 
 #[test]
