@@ -2,7 +2,7 @@
 //! databases, launch-row masking preflight, and closed `owned_target` (#1227).
 
 use super::*;
-use crate::adapters::agy::fold::{unconfirmed, Event, Failed, Failure, Seen, Verdict};
+use crate::adapters::agy::fold::{Event, Failed, Failure, Verdict};
 use crate::adapters::agy::rejoin::keep_rejoin;
 use crate::adapters::agy::restore::check_owned_target;
 
@@ -882,13 +882,14 @@ fn v2_wrong_type_string_members_fail_unread() {
 }
 
 fn success_unconfirmed() -> crate::PreSessionRefusal {
-    unconfirmed(
-        FLASH,
-        &[],
-        &Seen {
-            status: Some("SUCCESS".into()),
-            timed_out: false,
-        },
+    crate::PreSessionRefusal::from_parts(
+        crate::RefusalClass::Other,
+        format!(
+            "model_unconfirmed: agy's result had status SUCCESS; \
+             the seat pinned \"{FLASH}\" and no init row named the model agy served"
+        ),
+        None,
+        None,
     )
 }
 

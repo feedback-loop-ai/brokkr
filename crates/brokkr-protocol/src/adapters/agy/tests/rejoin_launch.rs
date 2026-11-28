@@ -628,12 +628,11 @@ fn l3_l5_unconfirmed_rejoin_puts_kept_state_back_and_confirmed_model_substitutio
     let wrong_model = format!(
         "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":{{\"model\":\"other-model\"}}}}\n"
     );
-    let expected_substituted = crate::adapters::refusal::refusal_reason(
-        "model_substituted",
+    let expected_substituted = crate::PreSessionRefusal::from_parts(
+        crate::RefusalClass::Other,
+        format!("model_substituted: the seat pinned \"{FLASH}\" and agy served \"other-model\""),
         None,
-        Some(&format!(
-            "the seat pinned \"{FLASH}\" and agy served \"other-model\""
-        )),
+        None,
     );
     for (label, stream, expected_launch, expected_refusal, keep_old) in [
         (
@@ -1050,23 +1049,48 @@ fn l2_restore_unsafe_types_absent_and_unowned_rollback_cleanly() {
     }
 }
 
+fn assert_restore_notice_display() {
+    let perm = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    for (notice, expected) in [
+        (
+            RestoreNotice::Absent,
+            "agy rejoin skipped: kept conversation state is absent".to_string(),
+        ),
+        (
+            RestoreNotice::LockHeld,
+            "agy rejoin skipped: another turn holds the conversation lock".to_string(),
+        ),
+        (
+            RestoreNotice::ReferenceMasked,
+            "agy rejoin skipped: masking the turn's secret bindings would rewrite the launch row"
+                .to_string(),
+        ),
+        (
+            RestoreNotice::Io(std::io::ErrorKind::PermissionDenied),
+            format!("agy rejoin skipped: could not lock or open kept conversation: {perm}"),
+        ),
+        (
+            RestoreNotice::Parent(ParentError::NoOperatorHome),
+            "agy rejoin skipped: the operator has no HOME to keep it under".to_string(),
+        ),
+        (
+            RestoreNotice::Copy(RejoinNotice::EmptyDatabase),
+            "agy rejoin skipped (agy rejoin state not kept: conversation database is empty)"
+                .to_string(),
+        ),
+        (
+            RestoreNotice::Copy(RejoinNotice::EmptyBrain),
+            "agy rejoin skipped (agy rejoin state not kept: conversation brain directory is empty)"
+                .to_string(),
+        ),
+    ] {
+        assert_eq!(notice.to_string(), expected);
+    }
+}
+
 #[test]
 fn l2_restore_notice_display_owned_parent_and_replace_remove_edge_cases() {
-    for notice in [
-        RestoreNotice::Absent,
-        RestoreNotice::LockHeld,
-        RestoreNotice::ReferenceMasked,
-        RestoreNotice::Io(std::io::ErrorKind::PermissionDenied),
-        RestoreNotice::Parent(ParentError::NoOperatorHome),
-        RestoreNotice::Copy(RejoinNotice::EmptyDatabase),
-        RestoreNotice::Copy(RejoinNotice::EmptyBrain),
-    ] {
-        let text = notice.to_string();
-        assert!(
-            text.starts_with("agy rejoin skipped") && !text.contains(UUID_A),
-            "{text}"
-        );
-    }
+    assert_restore_notice_display();
     let dir = tempfile::tempdir().unwrap();
     let (op, eng) = (dir.path().join("op"), dir.path().join("eng"));
     let conv = seed_kept(&op, UUID_A, b"old", &[("sub/deep.txt", b"old-deep")]);

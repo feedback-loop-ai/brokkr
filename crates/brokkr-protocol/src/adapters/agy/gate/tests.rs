@@ -50,7 +50,7 @@ fn a_listed_tool_is_left_to_its_rules_and_another_is_denied_by_name() {
 /// call's own name, allows nothing.
 #[test]
 fn an_unread_call_and_a_name_only_in_the_arguments_are_denied() {
-    let unread = json!({"decision": "deny", "reason": UNREAD});
+    let unread = json!({"decision": "deny", "reason": "the engine's gate could not read the tool call, so it is denied"});
     for (label, input) in [
         ("not-json", "not json"),
         ("empty", ""),

@@ -861,7 +861,7 @@ fn seed_rejoin_driver_fixture(
 
 #[test]
 fn rejoin_emitted_resumed_row_passes_v8_seat_record_with_site_ref() {
-    use brokkr_store::{validate_seat_record, SeatRecordVersion};
+    use brokkr_store::{validate_seat_record, SeatRecordError, SeatRecordVersion};
     use std::process::Stdio;
 
     const OFFERED: &str = "764607c1-0f06-4973-9fa7-1a1054494a3b";
@@ -929,8 +929,14 @@ fn rejoin_emitted_resumed_row_passes_v8_seat_record_with_site_ref() {
 
         let mut without_root = stamped.clone();
         without_root.as_object_mut().unwrap().remove("root_session");
-        assert!(
-            validate_seat_record(&without_root, 1, SeatRecordVersion::V8).is_err(),
+        assert_eq!(
+            validate_seat_record(&without_root, 1, SeatRecordVersion::V8),
+            Err(SeatRecordError {
+                seq: 1,
+                path: "/".to_string(),
+                contract: "contracts/seat-record.v8.schema.json",
+                settled_member: None,
+            }),
             "{label}: v8 must refuse stamped launch: resumed without root_session"
         );
     }
