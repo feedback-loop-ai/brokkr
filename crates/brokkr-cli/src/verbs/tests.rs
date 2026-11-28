@@ -1,5 +1,5 @@
 //! #362 found seven verbs that took `--run` literally, and decision
-//! 0015's proposed 2026-09-28 addendum gives every `--run` its selector.
+//! 0015's accepted 2026-09-28 addendum gives every `--run` its selector.
 //! One test per verb pins that each now asks `selector::resolve_run`: a
 //! verb that resolves names the run `latest` stands for, and on a journal
 //! holding no run at all it answers with the resolver's own refusal,

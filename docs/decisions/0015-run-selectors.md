@@ -74,9 +74,15 @@ runs; it is the same string ordering `forge runs` already sorts by.
 - `--json` shapes are unchanged; the resolved id is what every readout
   prints and what `export` names its files for.
 
-## Addendum — 2026-09-28, proposed: every `--run` takes the selector (#362)
+## Addendum — 2026-09-28, accepted 2026-11-27: every `--run` takes the selector (#362)
 
-Status: proposed; only the operator accepts this addendum.
+Addendum status: accepted (operator, 2026-11-27)
+
+The operator accepted this addendum in chat on 2026-11-27 ("0015 yes"),
+as recorded on
+[#1428](https://github.com/feedback-loop-ai/brokkr/issues/1428#issuecomment-7212777373).
+The ruling keeps the selector on the write paths, closing the option
+weighed below of reverting them to the full id.
 
 The scope above kept the selector to the five readouts and left the
 write paths on the full id as the operator's call. By #362's audit the
@@ -86,7 +92,7 @@ literally, and the living docs already told readers that `--run`
 takes `latest` everywhere (`brokkr costs --run latest` in the
 quickstart). #362 asked for the call to be made.
 
-Proposed: every argument that names a run resolves through
+Ruled: every argument that names a run resolves through
 `selector::resolve_run`, the write paths included. `costs` and
 `compare` are reads and join the readouts. `resume`, `rerun`,
 `conclude`, `operator` (`retry`, `stop` and `supersede`) and `bridge`

@@ -324,9 +324,9 @@ fn reference() -> String {
          code, as the binary defines them; `brokkr <verb> --help` prints the \
          same text. An argument marked **yes** under Selector takes a full \
          run id, a unique prefix of one, or `latest`, the run created most \
-         recently (decision 0015, and for the write paths its proposed \
-         2026-09-28 addendum); one marked **with a journal** does so only \
-         when the workspace journal is there, and otherwise takes the id \
+         recently (decision 0015, and for the write paths its 2026-09-28 \
+         addendum, accepted 2026-11-27); one marked **with a journal** does so \
+         only when the workspace journal is there, and otherwise takes the id \
          literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, \
          and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n\
          The verbs nest under fourteen roots: decision 0113's twelve, \
