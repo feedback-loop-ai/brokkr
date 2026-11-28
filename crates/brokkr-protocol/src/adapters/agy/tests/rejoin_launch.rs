@@ -201,7 +201,7 @@ fn write_fake_rejoin_agy(seat_dir: &Path, spec: &FakeAgySpec<'_>) -> PathBuf {
            if [ -f \"$s\" ]; then cp \"$s\" \"$t\"; else rm -f \"$t\"; fi\n\
          done\n\
          if [ -e \"$HOME/.gemini/antigravity-cli/conversations\" ] || [ -e \"$HOME/.gemini/antigravity-cli/brain\" ]; then : > '{d}/had_restored_dirs.marker'; fi\n\
-         for p in \"conversations/{id}.db:restored.db\" \"brain/{id}/note.txt:restored.note\"; do\n\
+         for p in \"conversations/{id}.db:restored.db\" \"brain/{id}/note.txt:restored.note\" \"brain/{id}/step2.txt:restored.step2\"; do\n\
            s=\"$HOME/.gemini/antigravity-cli/${{p%%:*}}\"; t=\"{d}/${{p##*:}}\"\n\
            if [ -f \"$s\" ]; then cp \"$s\" \"$t\"; else rm -f \"$t\"; fi\n\
          done\n\
@@ -331,6 +331,15 @@ fn started_row(emitted: &[(Step, Value)]) -> Option<&Value> {
         .find_map(|(s, r)| (*s == Step::HarnessStarted).then_some(r))
 }
 
+fn assert_kept_rejoin_bytes(conv: &Path, db: &[u8], brain_rel: &str, brain: &[u8]) {
+    let kept = conv.join(REJOIN_DIR);
+    assert_eq!(std::fs::read(kept.join(REJOIN_DB_FILE)).unwrap(), db);
+    assert_eq!(
+        std::fs::read(kept.join(REJOIN_BRAIN_DIR).join(brain_rel)).unwrap(),
+        brain
+    );
+}
+
 fn assert_turn2_kept(conv: &Path, emitted: &[(Step, Value)]) {
     let started = started_row(emitted).expect("harness-started emitted");
     assert_eq!(started["launch"], "resumed");
@@ -340,10 +349,7 @@ fn assert_turn2_kept(conv: &Path, emitted: &[(Step, Value)]) {
         json!({"kind": "agy-conversation", "id": UUID_A, "harness_version": "1.5.18", "persistent": true})
     );
     assert_eq!(started["transcript"]["locator"], UUID_A);
-    assert_eq!(
-        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-        b"db-turn-2"
-    );
+    assert_kept_rejoin_bytes(conv, b"db-turn-2", "step2.txt", b"brain-turn-2");
     assert!(!conv
         .join(REJOIN_DIR)
         .join(REJOIN_BRAIN_DIR)
@@ -448,9 +454,10 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
     assert_eq!(text("turn3.hooks"), cold_hooks);
     assert_eq!(text("restored.db"), "db-turn-2");
     assert_eq!(
-        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-        b"db-turn-3"
+        std::fs::read(seat_dir.join("restored.step2")).unwrap(),
+        b"brain-turn-2"
     );
+    assert_kept_rejoin_bytes(&conv, b"db-turn-3", "step3.txt", b"brain-turn-3");
 }
 
 #[test]
@@ -1025,15 +1032,7 @@ fn l2_restore_notice_display_owned_parent_and_replace_remove_edge_cases() {
     std::fs::write(src_brain.join("nested/new.txt"), b"new-deep").unwrap();
     std::fs::rename(conv.join(REJOIN_DIR), conv.join(".rejoin.aside.test")).unwrap();
     replace_rejoin(UUID_A, &eng, Some(&op), &[], RejoinCaps::DEFAULT).unwrap();
-    assert_eq!(
-        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-        b"new-db"
-    );
-    assert!(conv
-        .join(REJOIN_DIR)
-        .join(REJOIN_BRAIN_DIR)
-        .join("nested/new.txt")
-        .exists());
+    assert_kept_rejoin_bytes(&conv, b"new-db", "nested/new.txt", b"new-deep");
     assert!(!conv
         .join(REJOIN_DIR)
         .join(REJOIN_BRAIN_DIR)
