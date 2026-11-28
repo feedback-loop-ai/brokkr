@@ -34,6 +34,7 @@ const UPSERT_SCHEMA_META_SQL: &str = "INSERT INTO brokkr_pg_schema_meta (compone
     ON CONFLICT (component) DO NOTHING";
 const SELECT_SCHEMA_META_SQL: &str =
     "SELECT version FROM brokkr_pg_schema_meta WHERE component = $1";
+const SELECT_CURRENT_SCHEMA_SQL: &str = "SELECT current_schema()";
 
 #[derive(Clone, Copy)]
 pub(crate) enum PgColType {
@@ -166,6 +167,13 @@ impl SchemaKind {
             SchemaKind::Coordination => COORDINATION_TABLES,
         }
     }
+
+    fn legacy_indexes(self) -> &'static [&'static str] {
+        match self {
+            SchemaKind::Projection => &["brokkr_projected_runs_created_idx"],
+            SchemaKind::EventLog | SchemaKind::Coordination => &[],
+        }
+    }
 }
 
 const EVENT_LOG_TABLES: &[TableSpec] = &[
@@ -214,7 +222,7 @@ const PROJECTION_TABLES: &[TableSpec] = &[
         ],
         checks: &[],
         table_constraints: &[],
-        indexes: &["DROP INDEX IF EXISTS brokkr_projected_runs_created_idx"],
+        indexes: &[],
     },
     TableSpec {
         name: "brokkr_projected_events",
@@ -337,6 +345,7 @@ pub(crate) fn init_schema(client: &mut PgClient, kind: SchemaKind) -> Result<(),
                     tx.query(index_sql, &[])?;
                 }
             }
+            drop_legacy_indexes(tx, kind.legacy_indexes())?;
             verify_schema_version(tx, kind.component())
         },
         |err| err,
@@ -411,6 +420,37 @@ fn normalize_check_expr(expr: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase()
+}
+
+fn drop_legacy_indexes(tx: &mut PgClient, legacy_indexes: &[&str]) -> Result<(), PgError> {
+    if legacy_indexes.is_empty() {
+        return Ok(());
+    }
+    let schema = quote_pg_ident(&current_schema(tx)?);
+    for index in legacy_indexes {
+        let sql = format!("DROP INDEX IF EXISTS {schema}.{}", quote_pg_ident(index));
+        tx.query(&sql, &[])?;
+    }
+    Ok(())
+}
+
+fn current_schema(tx: &mut PgClient) -> Result<String, PgError> {
+    let res = tx.query(SELECT_CURRENT_SCHEMA_SQL, &[])?;
+    let schema = res
+        .rows
+        .first()
+        .map(|row| row.get_opt_str(0))
+        .transpose()?
+        .flatten()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            PgError::IncompatibleSchema("no current PostgreSQL schema selected".into())
+        })?;
+    Ok(schema.to_string())
+}
+
+fn quote_pg_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
 fn verify_schema_version(tx: &mut PgClient, component: &str) -> Result<(), PgError> {

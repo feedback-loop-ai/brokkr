@@ -82,6 +82,9 @@ pub(crate) struct MockDb {
     pub(crate) proj_events: BTreeMap<(String, i64), ProjEventRow>,
     pub(crate) proj_events_jsonb: BTreeMap<(String, i64), Option<String>>,
     pub(crate) schema_meta: BTreeMap<String, i64>,
+    pub(crate) current_schema_override: Option<Option<String>>,
+    pub(crate) search_path: Vec<String>,
+    pub(crate) indexes: BTreeSet<(String, String)>,
     pub(crate) omit_columns: BTreeSet<(String, String)>,
     pub(crate) override_column_meta: BTreeMap<(String, String), (String, String)>,
     pub(crate) omit_checks: BTreeSet<(String, String)>,
@@ -309,6 +312,7 @@ fn exec_sql(
         return Ok((vec![], "CREATE INDEX".into()));
     }
     if norm.starts_with("DROP INDEX") {
+        drop_mock_index(&mut db, &norm);
         return Ok((vec![], "DROP INDEX".into()));
     }
     if norm.starts_with("CREATE TABLE") {
@@ -338,7 +342,64 @@ fn mock_pg_check_def(expr: &str) -> String {
     }
 }
 
+fn parse_pg_ident(raw: &str) -> (String, &str) {
+    let trimmed = raw.trim_start();
+    if let Some(mut rest) = trimmed.strip_prefix('"') {
+        let mut out = String::new();
+        while let Some(pos) = rest.find('"') {
+            out.push_str(&rest[..pos]);
+            rest = &rest[pos + 1..];
+            if let Some(after) = rest.strip_prefix('"') {
+                out.push('"');
+                rest = after;
+            } else {
+                return (out, rest);
+            }
+        }
+        (out, rest)
+    } else {
+        let end = trimmed.find(['.', ';', ' ']).unwrap_or(trimmed.len());
+        (trimmed[..end].to_ascii_lowercase(), &trimmed[end..])
+    }
+}
+
+fn drop_mock_index(db: &mut MockDb, norm: &str) {
+    let target = norm
+        .strip_prefix("DROP INDEX IF EXISTS ")
+        .or_else(|| norm.strip_prefix("DROP INDEX "))
+        .unwrap_or("")
+        .trim_end_matches(';')
+        .trim();
+    let (first, rest) = parse_pg_ident(target);
+    if let Some(after_dot) = rest.trim_start().strip_prefix('.') {
+        let (index, _) = parse_pg_ident(after_dot);
+        db.indexes.remove(&(first, index));
+        return;
+    }
+    let path: Vec<String> = if db.search_path.is_empty() {
+        db.current_schema_override
+            .clone()
+            .unwrap_or_else(|| Some("public".into()))
+            .into_iter()
+            .collect()
+    } else {
+        db.search_path.clone()
+    };
+    for schema in path {
+        if db.indexes.remove(&(schema, first.clone())) {
+            break;
+        }
+    }
+}
+
 fn exec_schema(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Option<SqlRes> {
+    if norm == "SELECT current_schema()" {
+        let schema = db
+            .current_schema_override
+            .clone()
+            .unwrap_or_else(|| Some("public".into()));
+        return Some(Ok((vec![vec![schema]], "SELECT 1".into())));
+    }
     if norm
         .starts_with("SELECT column_name, data_type, is_nullable FROM information_schema.columns")
     {

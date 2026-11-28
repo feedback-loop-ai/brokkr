@@ -189,7 +189,7 @@ fn spawn_tx_single_reply(
     (PgClient::connect(&cfg).expect("connect"), handle)
 }
 
-fn assert_query_protocol_error_poisons(frames: Vec<(u8, Vec<u8>)>) {
+fn assert_query_protocol_error_poisons(frames: Vec<(u8, Vec<u8>)>) -> String {
     let (p, h) = spawn_one_shot(move |mut s| {
         complete_trust_startup(&mut s);
         read_extended_query(&mut s);
@@ -206,16 +206,17 @@ fn assert_query_protocol_error_poisons(frames: Vec<(u8, Vec<u8>)>) {
         .unwrap()
         .with_io_timeout(Duration::from_millis(200));
     let mut c = PgClient::connect(&cfg).expect("trust connect");
-    assert!(matches!(
-        c.query("SELECT 1", &[]),
-        Err(PgError::Protocol(_))
-    ));
+    let msg = match c.query("SELECT 1", &[]) {
+        Err(PgError::Protocol(msg)) => msg,
+        other => panic!("expected PgError::Protocol, got {other:?}"),
+    };
     assert!(matches!(
         c.query("SELECT 1", &[]),
         Err(PgError::ConnectionClosed)
     ));
     drop(c);
     h.join().unwrap();
+    msg
 }
 
 fn spawn_one_shot(
@@ -1132,67 +1133,155 @@ fn wire_transaction_compromise_overrides_callback_error_while_preserving_ordinar
     h_ord.join().unwrap();
 }
 
-#[test]
-fn wire_rejects_mixed_error_and_post_completion_row_frames() {
-    for frames in [
+fn mixed_error_completion_frames() -> [Vec<(u8, Vec<u8>)>; 2] {
+    [
         vec![
             (b'C', b"COMMIT\0".to_vec()),
             (b'E', error_payload("40001", "boom", None)),
             (b'Z', b"E".to_vec()),
         ],
         vec![
-            (b'E', error_payload("40001", "boom", None)),
-            (b'C', b"SELECT 1\0".to_vec()),
-            (b'Z', b"I".to_vec()),
-        ],
-        vec![
             (b'E', error_payload("40001", "first", None)),
             (b'E', error_payload("40001", "second", None)),
             (b'Z', b"I".to_vec()),
         ],
-        vec![
-            (b'T', row_description_payload(1)),
-            (b'T', row_description_payload(1)),
-            (b'Z', b"I".to_vec()),
-        ],
-        vec![
-            (b'C', b"SELECT 0\0".to_vec()),
-            (b'T', row_description_payload(1)),
-            (b'Z', b"I".to_vec()),
-        ],
-        vec![
-            (b'T', row_description_payload(1)),
-            (b'C', b"SELECT 1\0".to_vec()),
-            (b'D', data_row_payload(&[Some("a")])),
-            (b'Z', b"I".to_vec()),
-        ],
+    ]
+}
+
+#[test]
+fn wire_rejects_mixed_error_and_post_completion_row_frames() {
+    for frames in mixed_error_completion_frames() {
+        assert_eq!(
+            assert_query_protocol_error_poisons(frames),
+            "duplicate query completion before ReadyForQuery"
+        );
+    }
+    for (frames, want_msg) in [
+        (
+            vec![
+                (b'E', error_payload("40001", "boom", None)),
+                (b'C', b"SELECT 1\0".to_vec()),
+                (b'Z', b"I".to_vec()),
+            ],
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            vec![
+                (b'T', row_description_payload(1)),
+                (b'T', row_description_payload(1)),
+                (b'C', b"SELECT 0\0".to_vec()),
+                (b'Z', b"I".to_vec()),
+            ],
+            "unexpected RowDescription frame",
+        ),
+        (
+            vec![
+                (b'C', b"SELECT 0\0".to_vec()),
+                (b'T', row_description_payload(1)),
+                (b'Z', b"I".to_vec()),
+            ],
+            "unexpected RowDescription frame",
+        ),
+        (
+            vec![
+                (b'T', row_description_payload(1)),
+                (b'C', b"SELECT 1\0".to_vec()),
+                (b'D', data_row_payload(&[Some("a")])),
+                (b'Z', b"I".to_vec()),
+            ],
+            "DataRow after completion",
+        ),
+        (
+            vec![
+                (b'T', row_description_payload(1)),
+                (b'D', data_row_payload(&[Some("a")])),
+                (b'I', Vec::new()),
+                (b'Z', b"I".to_vec()),
+            ],
+            "unexpected EmptyQueryResponse after RowDescription",
+        ),
+        (
+            vec![
+                (b'T', row_description_payload(1)),
+                (b'I', Vec::new()),
+                (b'Z', b"I".to_vec()),
+            ],
+            "unexpected EmptyQueryResponse after RowDescription",
+        ),
+        (
+            vec![(b'I', b"x".to_vec()), (b'Z', b"I".to_vec())],
+            "non-empty EmptyQueryResponse payload (1 bytes)",
+        ),
+        (
+            vec![(b'Z', b"I".to_vec())],
+            "premature ReadyForQuery before query completion",
+        ),
+        (
+            vec![(b'D', data_row_payload(&[Some("a")]))],
+            "received DataRow without RowDescription",
+        ),
+        (
+            vec![
+                (b'T', row_description_payload(2)),
+                (b'D', data_row_payload(&[Some("a")])),
+            ],
+            "DataRow column count 1 does not match RowDescription count 2",
+        ),
+        (
+            vec![(b'?', Vec::new())],
+            "unexpected query message tag 0x3f",
+        ),
     ] {
-        assert_query_protocol_error_poisons(frames);
+        assert_eq!(assert_query_protocol_error_poisons(frames), want_msg);
     }
 }
 
 #[test]
 fn wire_tx_rejects_active_status_after_error_and_preserves_compromise_on_close() {
-    // 1. Inside in_transaction, ErrorResponse followed by ReadyForQuery('T') poisons socket.
-    let (p_err_t, h_err_t) = spawn_one_shot(|mut s| {
-        complete_trust_startup(&mut s);
-        send_begin_ok(&mut s);
-        let _ = read_extended_query(&mut s);
-        send_frame(&mut s, b'E', &error_payload("22012", "still active", None));
-        send_frame(&mut s, b'Z', b"T");
-        let _ = read_client_frame(&mut s);
-    });
-    let cfg_err_t = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_err_t}/db")).unwrap();
-    let mut c_err_t = PgClient::connect(&cfg_err_t).expect("connect");
-    assert!(matches!(
-        c_err_t.in_transaction(|tx| tx.query("SELECT 1/0", &[]).map(|_| ()), |e| e),
-        Err(PgError::Protocol(_))
-    ));
-    assert!(matches!(
-        c_err_t.query("SELECT 1", &[]),
-        Err(PgError::ConnectionClosed)
-    ));
-    h_err_t.join().unwrap();
+    // 1. Inside in_transaction (and on BEGIN itself), mixed/duplicate error completion
+    //    or ErrorResponse followed by ReadyForQuery('T') poisons the socket.
+    let [ce_frames, ee_frames] = mixed_error_completion_frames();
+    for (send_begin, frames) in [
+        (true, ce_frames),
+        (true, ee_frames),
+        (
+            true,
+            vec![
+                (b'E', error_payload("22012", "still active", None)),
+                (b'Z', b"T".to_vec()),
+            ],
+        ),
+        (
+            false,
+            vec![
+                (b'E', error_payload("25001", "begin active", None)),
+                (b'Z', b"T".to_vec()),
+            ],
+        ),
+    ] {
+        let (p_err, h_err) = spawn_one_shot(move |mut s| {
+            complete_trust_startup(&mut s);
+            if send_begin {
+                send_begin_ok(&mut s);
+            }
+            let _ = read_extended_query(&mut s);
+            for (tag, body) in &frames {
+                send_frame(&mut s, *tag, body);
+            }
+            let _ = read_client_frame(&mut s);
+        });
+        let cfg_err = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_err}/db")).unwrap();
+        let mut c_err = PgClient::connect(&cfg_err).expect("connect");
+        assert!(matches!(
+            c_err.in_transaction(|tx| tx.query("SELECT 1/0", &[]).map(|_| ()), |e| e),
+            Err(PgError::Protocol(_))
+        ));
+        assert!(matches!(
+            c_err.query("SELECT 1", &[]),
+            Err(PgError::ConnectionClosed)
+        ));
+        h_err.join().unwrap();
+    }
 
     // 2. Mid-callback EOF (close()) after COMMIT+'I' must NOT clear tx_compromised.
     let (p_eof, h_eof) = spawn_one_shot(|mut s| {

@@ -817,7 +817,7 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
         assert!(db
             .queries
             .iter()
-            .any(|q| q == "DROP INDEX IF EXISTS brokkr_projected_runs_created_idx"));
+            .any(|q| q == "DROP INDEX IF EXISTS \"public\".\"brokkr_projected_runs_created_idx\""));
     }
 
     // Wrong column data_type, non-nullable JSONB mirror, or nullable canonical TEXT must fail.
@@ -869,6 +869,67 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
             .unwrap()
             .schema_meta
             .contains_key("coordination"));
+    }
+}
+
+#[test]
+fn projection_init_drops_legacy_index_only_in_current_schema() {
+    // 1-2. Legacy index cleanup is schema-qualified: a later search_path schema's
+    //      same-named index survives even when the current schema lacks it, and
+    //      quoted schema identifiers drop only the current schema's index on v3 reconnect.
+    const LEGACY_IDX: &str = "brokkr_projected_runs_created_idx";
+    for (schema, preseed_v3, has_local_idx, want_sql) in [
+        (
+            "app_schema",
+            false,
+            false,
+            "DROP INDEX IF EXISTS \"app_schema\".\"brokkr_projected_runs_created_idx\"",
+        ),
+        (
+            "app\"schema",
+            true,
+            true,
+            "DROP INDEX IF EXISTS \"app\"\"schema\".\"brokkr_projected_runs_created_idx\"",
+        ),
+    ] {
+        let srv = MockPgServer::start();
+        {
+            let mut db = srv.db.lock().unwrap();
+            if preseed_v3 {
+                db.schema_meta
+                    .insert("projection".into(), crate::schema::CURRENT_SCHEMA_VERSION);
+            }
+            db.current_schema_override = Some(Some(schema.into()));
+            db.search_path = vec![schema.into(), "other_schema".into()];
+            if has_local_idx {
+                db.indexes.insert((schema.into(), LEGACY_IDX.into()));
+            }
+            db.indexes
+                .insert(("other_schema".into(), LEGACY_IDX.into()));
+        }
+        let _proj = PgProjectionStore::connect(&srv.config()).unwrap();
+        let db = srv.db.lock().unwrap();
+        assert!(!db.indexes.contains(&(schema.into(), LEGACY_IDX.into())));
+        assert!(db
+            .indexes
+            .contains(&("other_schema".into(), LEGACY_IDX.into())));
+        assert!(db.queries.iter().any(|q| q == want_sql));
+    }
+
+    // 3. NULL or empty current_schema() fails closed with IncompatibleSchema.
+    for empty_schema in [None, Some(String::new())] {
+        let srv_none = MockPgServer::start();
+        srv_none.db.lock().unwrap().current_schema_override = Some(empty_schema);
+        assert!(matches!(
+            PgProjectionStore::connect(&srv_none.config()),
+            Err(PgError::IncompatibleSchema(_))
+        ));
+        assert!(!srv_none
+            .db
+            .lock()
+            .unwrap()
+            .schema_meta
+            .contains_key("projection"));
     }
 }
 
