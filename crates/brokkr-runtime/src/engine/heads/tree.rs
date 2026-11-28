@@ -66,6 +66,11 @@ fn git(repo: &Path) -> Command {
         "diff.autoRefreshIndex=true",
         "-c",
         "core.fsmonitor=false",
+        // Command-line config outranks the repository's, so Git before 2.42,
+        // which lets `core.useReplaceRefs` undo the option below, still
+        // reads the real objects.
+        "-c",
+        "core.useReplaceRefs=false",
         "--no-optional-locks",
         "--no-replace-objects",
     ]);

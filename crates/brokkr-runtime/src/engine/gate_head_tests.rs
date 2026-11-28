@@ -102,7 +102,7 @@ fn gate(commands: &str, with_head: bool) -> (tempfile::TempDir, Engine) {
     )
 }
 
-fn git(repo: &Path, args: &[&str]) {
+fn git(repo: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
         .current_dir(repo)
@@ -113,6 +113,10 @@ fn git(repo: &Path, args: &[&str]) {
         "git {args:?}: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .trim_end()
+        .to_string()
 }
 
 fn drive_tree_park(engine: &mut Engine, evidence: Value) -> String {
@@ -323,11 +327,17 @@ fn a_gate_checks_files_hidden_by_index_flags() {
 #[test]
 fn a_gate_that_replaces_head_with_its_staged_edit_parks() {
     let (_dir, mut engine) = start_gate(
-        "printf replaced > base.txt\ngit add base.txt\ngit replace HEAD \"$(git commit-tree -m x \"$(git write-tree)\")\"",
+        "git config core.useReplaceRefs true\nprintf replaced > base.txt\ngit add base.txt\ngit replace HEAD \"$(git commit-tree -m x \"$(git write-tree)\")\"",
     );
-    let before = git_head(&engine.repo).unwrap();
     drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
-    assert_eq!(git_head(&engine.repo), Some(before));
+    let head = git(&engine.repo, &["--no-replace-objects", "rev-parse", "HEAD"]);
+    let replaced = git(
+        &engine.repo,
+        &["for-each-ref", "--format=%(refname)", "refs/replace/"],
+    );
+    assert_eq!(replaced, format!("refs/replace/{head}"));
+    let config = ["config", "--local", "--get", "core.useReplaceRefs"];
+    assert_eq!(git(&engine.repo, &config), "true");
 }
 
 #[test]
