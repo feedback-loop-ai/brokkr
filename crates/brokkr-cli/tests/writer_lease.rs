@@ -233,11 +233,8 @@ impl Running {
         let deadline = Instant::now() + PATIENCE;
         loop {
             let said = std::fs::read_to_string(&self.said).unwrap_or_default();
-            let run = said
-                .lines()
-                .find_map(|line| line.strip_prefix("run started: "));
-            if let Some(run) = run {
-                return run.trim().to_string();
+            if let Some(run) = run_id_from_stderr(&said) {
+                return run.to_string();
             }
             assert!(Instant::now() < deadline, "no run started: {said}");
             std::thread::sleep(Duration::from_millis(20));
@@ -263,6 +260,16 @@ impl Drop for Running {
         }
         let _ = self.child.wait();
     }
+}
+
+fn run_id_from_stderr(said: &str) -> Option<&str> {
+    let run = said
+        .split_inclusive('\n')
+        .filter_map(|line| line.strip_suffix('\n'))
+        .find_map(|line| line.strip_prefix("run started: "))?
+        .trim();
+    assert!(!run.is_empty(), "engine printed an empty run id: {said:?}");
+    Some(run)
 }
 
 /// The seat's shell: `before`, then the result `result` written where the
@@ -386,6 +393,31 @@ fn refused_at_the_door(host: &Host, home: &Path) {
     );
     assert_eq!(failures(&events), [refused]);
     assert!(!mark.exists(), "its driver never started");
+}
+
+#[test]
+fn run_id_requires_a_complete_nonempty_line() {
+    assert_eq!(
+        [
+            run_id_from_stderr("run started: "),
+            run_id_from_stderr("run started: test-id"),
+        ],
+        [None, None]
+    );
+    assert_eq!(
+        run_id_from_stderr("run started: test-id\n"),
+        Some("test-id")
+    );
+    assert_eq!(
+        run_id_from_stderr("before\nrun started: test-id\n"),
+        Some("test-id")
+    );
+    let empty =
+        std::panic::catch_unwind(|| run_id_from_stderr("before\nrun started: \n")).unwrap_err();
+    assert_eq!(
+        empty.downcast_ref::<String>().map(String::as_str),
+        Some("engine printed an empty run id: \"before\\nrun started: \\n\"")
+    );
 }
 
 #[test]
